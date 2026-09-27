@@ -1,0 +1,720 @@
+:root {
+  color: #f8f4e7;
+  background: #102a25;
+  font-family: Inter, ui-rounded, "Avenir Next", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255, 212, 74, 0.17), transparent 29rem),
+    linear-gradient(145deg, #173f35, #0b211e 72%);
+}
+
+button,
+canvas {
+  font: inherit;
+}
+
+/* The game fills the window above a slim control bar. */
+.game-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  height: 100vh;
+  height: 100dvh;
+  padding: 12px 12px 8px;
+}
+
+.game-frame {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 6px solid #f5ebd4;
+  border-radius: 18px;
+  background: #8ecf79;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  line-height: 0;
+}
+
+.win-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  padding: 28px;
+  place-content: center;
+  color: #fff8df;
+  background: rgba(15, 38, 33, 0.84);
+  backdrop-filter: blur(4px);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.win-overlay[hidden] {
+  display: none;
+}
+
+.win-overlay p {
+  margin: 0;
+}
+
+.win-overlay__eyebrow {
+  color: #ffd44a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.win-overlay .win-overlay__title {
+  margin: 8px 0 10px;
+  font-size: clamp(1.7rem, 5vw, 3.4rem);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.start-overlay {
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 212, 74, 0.18), transparent 15rem),
+    rgba(13, 43, 37, 0.9);
+}
+
+.start-scene {
+  justify-self: center;
+  width: min(100%, 480px);
+  aspect-ratio: 480 / 124;
+  margin-bottom: 10px;
+  image-rendering: pixelated;
+}
+
+#start-button {
+  justify-self: center;
+  min-height: 50px;
+  margin-top: 18px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: 999px;
+  color: #2f2711;
+  background: #ffd44a;
+  box-shadow: 0 6px 0 #b98e08;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+#start-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 0 #b98e08;
+}
+
+#start-button:active {
+  transform: translateY(3px);
+  box-shadow: 0 3px 0 #b98e08;
+}
+
+#start-button:focus-visible {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+}
+
+/* The hero picker makes the start screen taller; scroll rather than clip on small frames. */
+.start-overlay {
+  overflow-y: auto;
+  place-content: safe center;
+}
+
+.start-overlay .win-overlay__title {
+  font-size: clamp(1.5rem, 4.2vw, 2.8rem);
+}
+
+/* Hero cards and the Start button share a row, wrapping on narrow frames. */
+.start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 12px 22px;
+  margin-top: 14px;
+}
+
+.start-actions #start-button {
+  margin-top: 0;
+}
+
+.character-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.character-picker__legend {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  color: #ffd44a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.character-picker__options {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.character-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  border: 3px solid rgba(245, 235, 212, 0.25);
+  border-radius: 16px;
+  background: rgba(255, 248, 223, 0.06);
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.character-option:hover {
+  transform: translateY(-2px);
+  border-color: rgba(245, 235, 212, 0.55);
+}
+
+.character-option:has(input:checked) {
+  border-color: #ffd44a;
+  background: rgba(255, 212, 74, 0.16);
+  box-shadow: 0 5px 0 rgba(185, 142, 8, 0.7);
+}
+
+.character-option:has(input:focus-visible) {
+  outline: 4px solid #ffffff;
+  outline-offset: 3px;
+}
+
+/* Hidden visually but still a real radio button for screen readers and keyboards. */
+.character-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.character-option__portrait {
+  width: auto;
+  height: 52px;
+  image-rendering: pixelated;
+}
+
+.character-option__name {
+  font-weight: 900;
+  line-height: 1;
+}
+
+.game-over-overlay {
+  background: rgba(65, 18, 25, 0.88);
+}
+
+.game-over-overlay .win-overlay__eyebrow {
+  color: #ff9b73;
+}
+
+.pause-overlay {
+  background: rgba(20, 43, 62, 0.86);
+}
+
+/* Floats over the top-right of the map. main.js keeps the hero from walking under it. */
+.rescue-card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  width: 224px;
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+  border: 3px solid rgba(255, 255, 255, 0.5);
+  border-radius: 18px;
+  flex-direction: column;
+  align-items: center;
+  color: #17324a;
+  background: rgba(255, 247, 228, 0.93);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.rescue-card__top {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rescue-card__toggle {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #17324a;
+  background: rgba(23, 50, 74, 0.1);
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rescue-card__toggle:hover {
+  background: rgba(23, 50, 74, 0.18);
+}
+
+.rescue-card__toggle:focus-visible {
+  outline: 3px solid #17324a;
+  outline-offset: 2px;
+}
+
+.rescue-card__details {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Collapsed: one row with Maya, her status and the Show button. */
+.rescue-card.is-collapsed {
+  width: auto;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px 6px 10px;
+  flex-direction: row;
+  gap: 8px;
+}
+
+.rescue-card.is-collapsed .rescue-card__details,
+.rescue-card.is-collapsed .rescue-card__eyebrow {
+  display: none;
+}
+
+.rescue-card.is-collapsed .rescue-card__top {
+  order: 1;
+}
+
+.rescue-card.is-collapsed .maya-token {
+  width: 42px;
+  margin: 0;
+}
+
+.rescue-card.is-collapsed .rescue-state {
+  width: auto;
+  padding: 6px 10px;
+}
+
+.rescue-card__eyebrow,
+.rescue-card__label {
+  margin: 0;
+  color: #8b5a70;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+/* Maya's standing sprite, drawn into this canvas at load and scaled up crisply. */
+.maya-token {
+  display: block;
+  width: 64px;
+  height: auto;
+  margin: 8px 0;
+  image-rendering: pixelated;
+}
+
+.rescue-card h2 {
+  margin: 12px 0 8px;
+  font-size: 1.35rem;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.rescue-card__label--spaced {
+  margin-top: 10px;
+}
+
+.maya-address {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #17324a;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.rescue-state {
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 999px;
+  color: #7c2851;
+  background: #f8d8e6;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.rescue-card.is-rescued .rescue-state {
+  color: #16523d;
+  background: #ccebdc;
+}
+
+.rescue-card.is-danger .rescue-state {
+  color: #7b2029;
+  background: #ffd0d0;
+}
+
+.waffle-tally {
+  margin: 16px 0 0;
+  color: #7a4b12;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.waffle-tally strong {
+  color: #17324a;
+  font-weight: 900;
+}
+
+.waffle-tally__divider {
+  margin: 0 4px;
+}
+
+.storm-meter {
+  width: 100%;
+  margin: 14px 0 0;
+}
+
+.storm-meter__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: #34506b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.storm-meter__header strong {
+  color: #17324a;
+  font-weight: 900;
+}
+
+.storm-meter__bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe6ec;
+}
+
+.storm-meter__fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8fb8d8, #3f6fa0 60%, #2c3e66);
+}
+
+.win-overlay__score {
+  font-weight: 900;
+}
+
+.t-rex-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 0;
+  color: #8a3d31;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.t-rex-icon {
+  flex: none;
+  width: auto;
+  height: 22px;
+  image-rendering: pixelated;
+}
+
+/* main.js sizes the canvas's pixels to match this box. */
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.game-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 0 4px;
+}
+
+#game-status {
+  flex: 1 1 280px;
+  margin: 0;
+  color: #c9d8d2;
+  font-size: 0.92rem;
+}
+
+.game-buttons {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.map-credit {
+  flex-basis: 100%;
+  margin: 0;
+  color: #90aaa1;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.map-credit a {
+  color: #b9cec6;
+}
+
+.map-credit a:hover {
+  color: #ffd44a;
+}
+
+#restart-button,
+#pause-button {
+  flex: none;
+  min-height: 40px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  color: #2f2711;
+  background: #ffd44a;
+  box-shadow: 0 5px 0 #b98e08;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+#restart-button:hover,
+#pause-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 0 #b98e08;
+}
+
+#restart-button:active,
+#pause-button:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 #b98e08;
+}
+
+#restart-button:focus-visible,
+#pause-button:focus-visible {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+}
+
+#pause-button {
+  color: #17324a;
+  background: #d8e9e2;
+  box-shadow: 0 5px 0 #789a8e;
+}
+
+#pause-button:hover {
+  box-shadow: 0 7px 0 #789a8e;
+}
+
+#pause-button:active {
+  box-shadow: 0 2px 0 #789a8e;
+}
+
+.debug-button {
+  flex: none;
+  min-height: 46px;
+  padding: 0 18px;
+  border: 2px dashed #b6382e;
+  border-radius: 999px;
+  color: #7b2029;
+  background: #fff4f2;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.debug-button[aria-pressed='true'] {
+  border-style: solid;
+  color: #ffffff;
+  background: #b6382e;
+}
+
+.debug-button:focus-visible {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+}
+
+#pause-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 600px) {
+  .game-shell {
+    padding: 8px 8px 6px;
+  }
+
+  .game-frame {
+    border-width: 4px;
+    border-radius: 12px;
+  }
+
+  .game-controls {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .game-buttons {
+    flex: 1 1 100%;
+    justify-content: center;
+    gap: 8px;
+  }
+}
+
+/* Weather news ticker along the bottom of the game screen. */
+.weather-ticker {
+  --ticker-accent: #f2c230;
+  --ticker-accent-text: #2f2711;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  color: #ffffff;
+  background: rgba(13, 34, 66, 0.9);
+  box-shadow: 0 -2px 0 var(--ticker-accent);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 38px;
+  white-space: nowrap;
+  transform: translateY(110%);
+  transition: transform 350ms ease;
+}
+
+.weather-ticker.is-visible {
+  transform: translateY(0);
+}
+
+.weather-ticker[data-level='flood'] {
+  --ticker-accent: #f08c1a;
+  --ticker-accent-text: #2f1a05;
+}
+
+.weather-ticker[data-level='closed'],
+.weather-ticker[data-level='breaking'] {
+  --ticker-accent: #d63a2f;
+  --ticker-accent-text: #ffffff;
+}
+
+.weather-ticker__brand {
+  flex: none;
+  padding: 0 12px;
+  color: #0d2242;
+  background: #f5ebd4;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.weather-ticker__brand span {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.weather-ticker__tag {
+  flex: none;
+  padding: 0 12px;
+  color: var(--ticker-accent-text);
+  background: var(--ticker-accent);
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.weather-ticker[data-level='breaking'] .weather-ticker__tag {
+  animation: ticker-flash 0.9s steps(2, jump-none) infinite;
+}
+
+.weather-ticker__window {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.weather-ticker__text {
+  display: inline-block;
+  margin: 0;
+  padding: 0 14px;
+  will-change: transform;
+}
+
+@keyframes ticker-flash {
+  from {
+    background: var(--ticker-accent);
+  }
+
+  to {
+    background: #7b1d17;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .weather-ticker {
+    height: 32px;
+    font-size: 0.8rem;
+    line-height: 32px;
+  }
+
+  .weather-ticker__brand span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-ticker {
+    transition: none;
+  }
+
+  .weather-ticker[data-level='breaking'] .weather-ticker__tag {
+    animation: none;
+  }
+}

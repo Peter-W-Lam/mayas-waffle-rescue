@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Maya's Waffle Weather Rescue — a neighborhood rescue adventure."
+    />
+    <title>Maya’s Waffle Weather Rescue</title>
+  </head>
+  <body>
+    <main class="game-shell">
+      <h1 class="visually-hidden">Maya’s Waffle Weather Rescue</h1>
+
+      <section class="game-frame" aria-label="Game area">
+        <canvas id="game-canvas" aria-label="A scrolling street map with your hero, Maya, a pursuing T-Rex, and a Waffle House">
+          Your browser does not support HTML canvas.
+        </canvas>
+        <div id="weather-ticker" class="weather-ticker" data-level="alert" aria-hidden="true">
+          <div class="weather-ticker__brand">WAFL <span>Storm Team 5</span></div>
+          <div id="weather-ticker-tag" class="weather-ticker__tag">WEATHER ALERT</div>
+          <div id="weather-ticker-window" class="weather-ticker__window">
+            <p id="weather-ticker-text" class="weather-ticker__text"></p>
+          </div>
+        </div>
+        <p id="weather-announcer" class="visually-hidden" aria-live="polite"></p>
+
+        <!-- Floats over the top-right of the map; collapses to a small status pill. -->
+        <aside id="rescue-card" class="rescue-card" aria-label="Maya rescue details">
+          <div class="rescue-card__top">
+            <p class="rescue-card__eyebrow">Current rescue</p>
+            <button
+              id="rescue-card-toggle"
+              class="rescue-card__toggle"
+              type="button"
+              aria-controls="rescue-card-details"
+              aria-expanded="true"
+            >
+              Hide
+            </button>
+          </div>
+          <canvas id="maya-token" class="maya-token" aria-hidden="true"></canvas>
+          <p id="rescue-state" class="rescue-state" aria-live="polite">Waiting for Trevor</p>
+          <div id="rescue-card-details" class="rescue-card__details">
+            <h2>Find Maya</h2>
+            <p class="rescue-card__label">Last seen at</p>
+            <p id="maya-address" class="maya-address">Choosing an address…</p>
+            <p class="rescue-card__label rescue-card__label--spaced">Then head to Waffle House at</p>
+            <p id="waffle-house-address" class="maya-address">Choosing an address…</p>
+            <p class="waffle-tally">
+              <span aria-hidden="true">🧇</span> Waffles <strong id="waffle-count">0</strong>
+              <span class="waffle-tally__divider" aria-hidden="true">·</span>
+              <span aria-hidden="true">🥫</span> Tabs <strong id="tab-count">0</strong>
+              <span class="waffle-tally__divider" aria-hidden="true">·</span>
+              Score <strong id="score">0</strong>
+            </p>
+            <div class="storm-meter">
+              <p class="storm-meter__header">
+                <span><span aria-hidden="true">🌧️</span> Storm</span>
+                <strong id="storm-phase">Clear skies</strong>
+              </p>
+              <div
+                id="storm-bar"
+                class="storm-meter__bar"
+                role="progressbar"
+                aria-label="Storm progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
+                <div id="storm-fill" class="storm-meter__fill"></div>
+              </div>
+            </div>
+            <p class="t-rex-warning">
+              <canvas id="t-rex-icon" class="t-rex-icon" aria-hidden="true"></canvas> Watch for the T-Rex pack!
+            </p>
+          </div>
+        </aside>
+
+        <div id="start-overlay" class="win-overlay start-overlay" role="dialog" aria-modal="true" aria-labelledby="start-title">
+          <canvas id="start-scene" class="start-scene" aria-hidden="true"></canvas>
+          <p class="win-overlay__eyebrow">Inman Park + Cabbagetown</p>
+          <p id="start-title" class="win-overlay__title">Maya’s Waffle Weather Rescue</p>
+          <p>Find Maya, dodge the dinosaurs, and use the arrow keys to bring her safely to Waffle House.</p>
+          <div class="start-actions">
+            <fieldset class="character-picker">
+              <legend class="character-picker__legend">Choose your hero</legend>
+              <div id="character-options" class="character-picker__options"></div>
+            </fieldset>
+            <button id="start-button" type="button">Start game</button>
+          </div>
+        </div>
+        <div id="win-overlay" class="win-overlay" role="status" aria-live="assertive" hidden>
+          <p class="win-overlay__eyebrow">Rescue complete!</p>
+          <p class="win-overlay__title">Maya made it to Waffle House!</p>
+          <p id="win-score" class="win-overlay__score"></p>
+          <p><span id="win-hero-name">Trevor</span> saved the day. Use Restart Game to play again.</p>
+        </div>
+        <div id="game-over-overlay" class="win-overlay game-over-overlay" role="status" aria-live="assertive" hidden>
+          <p id="game-over-eyebrow" class="win-overlay__eyebrow">Chomp!</p>
+          <p id="game-over-title" class="win-overlay__title">A T-Rex caught Trevor!</p>
+          <p>Use Restart Game to try the rescue again.</p>
+        </div>
+        <div id="pause-overlay" class="win-overlay pause-overlay" role="status" aria-live="polite" hidden>
+          <p class="win-overlay__eyebrow">Taking a breather</p>
+          <p class="win-overlay__title">Game paused</p>
+          <p>Press Resume Game when you’re ready.</p>
+        </div>
+      </section>
+
+      <footer class="game-controls">
+        <p id="game-status" aria-live="polite">Status: Starting near Krog Street Market</p>
+        <div class="game-buttons">
+          <!-- Temporary debug controls; shown only when SHOW_DEBUG_CONTROLS is true in main.js. -->
+          <button id="debug-t-rex-button" class="debug-button" type="button" aria-pressed="false" hidden>
+            🦖 T-Rexes: on
+          </button>
+          <button id="debug-storm-button" class="debug-button" type="button" hidden>⏩ Storm +10%</button>
+          <button id="pause-button" type="button">Pause game</button>
+          <button id="restart-button" type="button">Restart game</button>
+        </div>
+        <p class="map-credit">
+          Map data ©
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+            OpenStreetMap contributors
+          </a>
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

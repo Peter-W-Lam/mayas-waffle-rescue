@@ -1,0 +1,9 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Local-only: manual backups, scratch output, and editor/agent settings
+work/
+outputs/
+.claude/

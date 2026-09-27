@@ -1,0 +1,2628 @@
+import './style.css';
+import { mapData } from './mapData.js';
+import { applyRoadAdjustments } from './mapAdjustments.js';
+import { createMayaStateFrames } from './mayaSprite.js';
+import { CHARACTERS, findCharacter } from './characters.js';
+import { createCharacterPicker } from './characterPicker.js';
+import { createTRexFrames } from './tRexSprite.js';
+import { createWaffleHouseSprite } from './waffleHouseSprite.js';
+import { createKrogStreetMarketSprite } from './krogStreetMarketSprite.js';
+import { createInmanParkSignSprite } from './inmanParkSignSprite.js';
+import { createMartaStationSprite } from './martaStationSprite.js';
+import { ACTIVE_DIFFICULTY, WEATHER_SETTINGS } from './weatherSettings.js';
+import { FLOOD_ZONES as SOURCE_FLOOD_ZONES } from './floodZones.js';
+import { WAFFLE_HOUSE_SITES } from './waffleHouseSites.js';
+import { MAP_SCALE, scaleMapData, scalePoint, scalePoints } from './mapScale.js';
+import {
+  createRain, drawRain, drawStormTint, getRainIntensity, getTintAlpha, updateRain,
+} from './weatherEffects.js';
+import { createWeatherTicker } from './weatherTicker.js';
+import { MARTA_LINE } from './martaLine.js';
+import { createMarta, drawMartaTracks, drawMartaTrains, updateMarta } from './marta.js';
+import { startChaseScene } from './startScene.js';
+import { createSodaTabSprite } from './sodaTabSprite.js';
+
+// Must run before anything below reads the road geometry. Road tweaks use the
+// original coordinates, so they're applied before the map is scaled up.
+applyRoadAdjustments(mapData.roads);
+scaleMapData(mapData);
+const FLOOD_ZONES = SOURCE_FLOOD_ZONES.map((zone) => ({ ...zone, points: scalePoints(zone.points) }));
+
+const canvas = document.querySelector('#game-canvas');
+const context = canvas.getContext('2d');
+const startButton = document.querySelector('#start-button');
+const restartButton = document.querySelector('#restart-button');
+const pauseButton = document.querySelector('#pause-button');
+const debugTRexButton = document.querySelector('#debug-t-rex-button');
+const debugStormButton = document.querySelector('#debug-storm-button');
+const weatherTicker = createWeatherTicker({
+  root: document.querySelector('#weather-ticker'),
+  tag: document.querySelector('#weather-ticker-tag'),
+  window: document.querySelector('#weather-ticker-window'),
+  text: document.querySelector('#weather-ticker-text'),
+  announcer: document.querySelector('#weather-announcer'),
+});
+const statusText = document.querySelector('#game-status');
+const mayaAddressText = document.querySelector('#maya-address');
+const waffleHouseAddressText = document.querySelector('#waffle-house-address');
+const rescueStateText = document.querySelector('#rescue-state');
+const rescueCard = document.querySelector('#rescue-card');
+const rescueCardToggle = document.querySelector('#rescue-card-toggle');
+const waffleCountText = document.querySelector('#waffle-count');
+const tabCountText = document.querySelector('#tab-count');
+const scoreText = document.querySelector('#score');
+const winScoreText = document.querySelector('#win-score');
+const stormPhaseText = document.querySelector('#storm-phase');
+const stormBar = document.querySelector('#storm-bar');
+const stormFill = document.querySelector('#storm-fill');
+const gameOverEyebrow = document.querySelector('#game-over-eyebrow');
+const gameOverTitle = document.querySelector('#game-over-title');
+const winOverlay = document.querySelector('#win-overlay');
+const winHeroNameText = document.querySelector('#win-hero-name');
+const characterOptions = document.querySelector('#character-options');
+const gameOverOverlay = document.querySelector('#game-over-overlay');
+const pauseOverlay = document.querySelector('#pause-overlay');
+const startOverlay = document.querySelector('#start-overlay');
+
+// The visible slice of the map, in world pixels. It follows the size of the game frame
+// (see resizeViewport): one world pixel per CSS pixel, zoomed in on very large screens so
+// you never see more than MAX_VIEW_* of the map, and zoomed out on small ones so you
+// always see at least MIN_VIEW_*.
+const viewport = { width: 960, height: 540, worldPerCssPixel: 1 };
+const MAX_VIEW_WIDTH = 1600;
+const MAX_VIEW_HEIGHT = 1000;
+const MIN_VIEW_WIDTH = 640;
+const MIN_VIEW_HEIGHT = 400;
+// Caps the canvas backing store so a big, high-density screen doesn't redraw ~10M pixels a frame.
+const MAX_CANVAS_PIXELS = 4_000_000;
+const WORLD_WIDTH = mapData.world.width;
+const WORLD_HEIGHT = mapData.world.height;
+const PLAYER_RADIUS = 14;
+const PLAYER_SPEED = 195;
+const PLAYER_SPRITE_SCALE = 2;
+const PLAYER_STRIDE_DURATION = 0.16;
+const MAYA_RADIUS = 12;
+const MAYA_PICKUP_DISTANCE = 34;
+const MAYA_FOLLOW_DISTANCE = 50;
+const MAYA_FOLLOW_SPEED = 235;
+// Spawn spacing, as walking distances along the streets (see planSpawns).
+const MAYA_MIN_TREVOR_WALK = 1000 * MAP_SCALE;
+const MAYA_MIN_WAFFLE_HOUSE_WALK = 1100 * MAP_SCALE;
+const WAFFLE_HOUSE_MIN_TREVOR_WALK = 1200 * MAP_SCALE;
+const MAYA_WANDER_SPEED = 48;
+const MAYA_WANDER_MIN_TIME = 1.2;
+const MAYA_WANDER_MAX_TIME = 3.6;
+const MAYA_REST_MIN_TIME = 1.4;
+const MAYA_REST_MAX_TIME = 4.2;
+const MAYA_ADDRESS_UPDATE_DISTANCE = 90 * MAP_SCALE;
+const MAYA_SPRITE_SCALE = 2;
+const MAYA_STRIDE_DURATION = 0.14;
+// While resting before she's found, Maya either sniffs or sits, looping that pose.
+const MAYA_REST_POSE_FRAME_DURATIONS = { sniff: 0.3, sit: 0.4 };
+const MAYA_SNIFF_CHANCE = 0.6;
+const T_REX_ROAD_RADIUS = 11;
+const T_REX_SPEED = PLAYER_SPEED * 0.8;
+const T_REX_CATCH_DISTANCE = 31;
+const T_REX_MIN_SPAWN_DISTANCE = 950 * MAP_SCALE;
+const T_REX_MIN_PACK_DISTANCE = 420 * MAP_SCALE;
+const T_REX_MIN_MAYA_DISTANCE = 500 * MAP_SCALE;
+const T_REX_MIN_WAFFLE_HOUSE_DISTANCE = 400 * MAP_SCALE;
+const T_REX_COUNT = 6;
+const T_REX_SPRITE_SCALE = 2;
+const T_REX_STRIDE_DURATION = 0.18;
+// Collectibles scattered along the streets. Counts scale with the map because its
+// streets get longer.
+const PICKUP_TYPES = {
+  waffle: { points: 10, count: Math.round(120 * MAP_SCALE) },
+  tab: { points: 5, count: Math.round(50 * MAP_SCALE) }, // soda can pull tabs
+};
+const PICKUP_MIN_SPACING = 150 * MAP_SCALE;
+const PICKUP_DISTANCE = 26;
+const PICKUP_MIN_START_DISTANCE = 160;
+const PICKUP_SAMPLE_SPACING = 40;
+const PICKUP_POPUP_DURATION = 0.8;
+const WAFFLE_SIZE = 18;
+const SODA_TAB_SCALE = 2;
+const REACHABILITY_CELL_SIZE = 8;
+const WEATHER = WEATHER_SETTINGS[ACTIVE_DIFFICULTY];
+const STORM_PHASES = [
+  { id: 'clear', label: 'Clear skies', startsAt: 0 },
+  { id: 'cloudy', label: 'Clouds rolling in', startsAt: WEATHER.cloudsStartAt },
+  {
+    id: 'rain',
+    label: 'Raining',
+    startsAt: WEATHER.rainStartsAt,
+    tickerLevel: 'alert',
+    message: 'Rain moving into Inman Park and Cabbagetown',
+  },
+  {
+    id: 'flooding',
+    label: 'Streets flooding',
+    startsAt: WEATHER.floodWindow[0],
+    tickerLevel: 'flood',
+    message: 'Heavy rain — flash flooding possible on low-lying streets',
+  },
+  { id: 'full', label: 'Storm has arrived', startsAt: 1 },
+];
+const SHOW_DEBUG_TRACKERS = true;
+const SHOW_T_REX_TRACKERS = false; // temporary: hides only the T-Rex edge arrows; Maya's stays
+const SHOW_DEBUG_CONTROLS = true; // temporary: set to false to hide the debug buttons
+const TRACKER_EDGE_PADDING = 30;
+const ROAD_FORGIVENESS = 7;
+const ROAD_MAGNET_SPEED = 24;
+const ROAD_SLIDE_SEARCH_PADDING = 12;
+const ROAD_SLIDE_MIN_ALIGNMENT = 0.16;
+const PLAYER_MOVEMENT_SUBSTEP = 3;
+// How far from a side street Trevor can be and still get slid into the turn.
+const CORNER_ASSIST_RANGE = 32;
+const CORNER_ASSIST_MIN_ALIGNMENT = 0.7;
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const MAJOR_ROAD_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary']);
+const LABEL_DEDUPLICATION_DISTANCE = 210 * MAP_SCALE;
+const KROG_TUNNEL_PATH = scalePoints([
+  [1310.1, 1368.5],
+  [1316.1, 1382.3],
+  [1380.3, 1559.5],
+]);
+const MAYA_SPAWN_STREETS = [
+  'Auburn Avenue',
+  'Boulevard',
+  'Bradley Street',
+  'Carroll Street',
+  'Cornelia Street',
+  'Daniel Street',
+  'DeKalb Avenue',
+  'Edgewood Avenue',
+  'Euclid Avenue',
+  'Flat Shoals Avenue',
+  'Howell Street',
+  'Kirkwood Avenue',
+  'Lake Avenue',
+  'Memorial Drive',
+  'Moreland Avenue',
+  'Pearl Street',
+  'Wylie Street',
+];
+
+const mayaFrames = createMayaStateFrames();
+const heroFrames = Object.fromEntries(CHARACTERS.map((character) => [character.id, character.createFrames()]));
+// The hero picked on the start screen, remembered in this browser between visits.
+const CHARACTER_STORAGE_KEY = 'mayas-waffle-weather-rescue:character';
+let selectedCharacterId = findCharacter(loadSavedCharacterId()).id;
+const tRexFrames = createTRexFrames();
+const waffleHouseSprite = createWaffleHouseSprite();
+const LANDMARK_SPRITE_SCALE = 2;
+// Buildings and signs drawn on the map. x/y is the sprite's centre in original map
+// units (scaled below); the streets around each spot are bent to make room (see
+// mapAdjustments.js).
+const landmarkProps = [
+  // Between Krog Street, Lake Avenue and Waddell Street.
+  { landmarkName: 'Krog Street Market', sprite: createKrogStreetMarketSprite(), x: 1349, y: 740 },
+  // In the triangle north of Euclid Avenue and Edgewood Avenue, inside Druid Circle.
+  { landmarkName: null, sprite: createInmanParkSignSprite(), x: 1915, y: 810 },
+  // Just north of DeKalb Avenue, beside the elevated MARTA tracks.
+  { landmarkName: 'Inman Park/Reynoldstown', sprite: createMartaStationSprite(), x: 2883, y: 574 },
+].map((prop) => {
+  const [x, y] = scalePoint([prop.x, prop.y]);
+  return { ...prop, x, y };
+});
+const camera = { x: 0, y: 0 };
+const previousCamera = { x: 0, y: 0 };
+const rain = createRain(viewport.width, viewport.height);
+// Decorative elevated MARTA line with passing trains; it never affects movement.
+const marta = createMarta({ ...MARTA_LINE, points: scalePoints(MARTA_LINE.points) });
+// The hero can roam this middle part of the screen before the camera follows.
+const CAMERA_DEAD_ZONE = { left: 0.3, right: 0.7, top: 0.28, bottom: 0.72 };
+// Keeps the hero this far (world pixels) from the floating rescue card.
+const RESCUE_CARD_CLEARANCE = 24;
+// The rescue card's area in viewport pixels, measured on resize and when it collapses.
+let rescueCardRect = null;
+const pressedKeys = new Set();
+let previousFrameTime = performance.now();
+let gameState;
+let playerTrail = [];
+let isPaused = false;
+let hasStarted = false;
+let shouldResetOnStart = false;
+let tRexesDisabled = false; // debug toggle; survives restarts
+
+function findLandmark(name) {
+  return mapData.landmarks.find((landmark) => landmark.name === name);
+}
+
+function closestPointOnSegment(x, y, start, end) {
+  const segmentX = end[0] - start[0];
+  const segmentY = end[1] - start[1];
+  const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+
+  if (segmentLengthSquared === 0) {
+    return { x: start[0], y: start[1] };
+  }
+
+  const progress = Math.max(
+    0,
+    Math.min(1, ((x - start[0]) * segmentX + (y - start[1]) * segmentY) / segmentLengthSquared),
+  );
+
+  return {
+    x: start[0] + segmentX * progress,
+    y: start[1] + segmentY * progress,
+  };
+}
+
+function findNearestRoadPoint(x, y) {
+  let nearest = null;
+
+  for (const road of mapData.roads) {
+    for (let index = 1; index < road.points.length; index += 1) {
+      const point = closestPointOnSegment(x, y, road.points[index - 1], road.points[index]);
+      const distance = Math.hypot(x - point.x, y - point.y);
+
+      if (!nearest || distance < nearest.distance) {
+        nearest = {
+          ...point,
+          distance,
+          road,
+          segmentStart: road.points[index - 1],
+          segmentEnd: road.points[index],
+        };
+      }
+    }
+  }
+
+  return nearest;
+}
+
+const krogStreetMarket = findLandmark('Krog Street Market') ?? { x: 500 * MAP_SCALE, y: 750 * MAP_SCALE };
+const startingRoadPoint = findNearestRoadPoint(krogStreetMarket.x, krogStreetMarket.y);
+const WAFFLE_HOUSE_WIDTH = 148;
+const WAFFLE_HOUSE_HEIGHT = 78;
+// Storm tint strength at which Waffle House's glow reaches full brightness (the tint's max).
+const WAFFLE_HOUSE_FULL_GLOW_TINT = 0.32;
+// How far from the driveway's centreline the hero can walk.
+const WAFFLE_HOUSE_DRIVEWAY_REACH = 17;
+const WAFFLE_HOUSE_MAX_DRIVEWAY_LENGTH = 140;
+// This game's Waffle House, picked from waffleHouseSites by resetGameState. It is null
+// while the map loads, so the road-only reachability grid never includes a driveway.
+let waffleHouse = null;
+
+// Flood-fills the walkable streets from Trevor's start so pickups never land on
+// disconnected roads (e.g. Freedom Parkway) that he has no way to reach.
+const GRID_NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+// The same neighbors as flat arrays, for the hot loop in canFloodSafely.
+const GRID_NEIGHBOR_COLUMN_STEPS = GRID_NEIGHBORS.map(([columnStep]) => columnStep);
+const GRID_NEIGHBOR_ROW_STEPS = GRID_NEIGHBORS.map(([, rowStep]) => rowStep);
+
+function buildReachabilityGrid() {
+  const columns = Math.ceil(WORLD_WIDTH / REACHABILITY_CELL_SIZE);
+  const rows = Math.ceil(WORLD_HEIGHT / REACHABILITY_CELL_SIZE);
+  const reachable = new Uint8Array(columns * rows);
+  const visited = new Uint8Array(columns * rows);
+  const startColumn = Math.floor(startingRoadPoint.x / REACHABILITY_CELL_SIZE);
+  const startRow = Math.floor(startingRoadPoint.y / REACHABILITY_CELL_SIZE);
+  const queue = [[startColumn, startRow]];
+
+  visited[startRow * columns + startColumn] = 1;
+  reachable[startRow * columns + startColumn] = 1;
+
+  while (queue.length > 0) {
+    const [column, row] = queue.pop();
+    for (const [columnStep, rowStep] of GRID_NEIGHBORS) {
+      const nextColumn = column + columnStep;
+      const nextRow = row + rowStep;
+      if (nextColumn < 0 || nextRow < 0 || nextColumn >= columns || nextRow >= rows) continue;
+
+      const index = nextRow * columns + nextColumn;
+      if (visited[index]) continue;
+      visited[index] = 1;
+
+      const x = (nextColumn + 0.5) * REACHABILITY_CELL_SIZE;
+      const y = (nextRow + 0.5) * REACHABILITY_CELL_SIZE;
+      if (!canPlayerOccupy(x, y)) continue;
+      reachable[index] = 1;
+      queue.push([nextColumn, nextRow]);
+    }
+  }
+
+  return { columns, rows, reachable };
+}
+
+// Streets only. Each game adds its Waffle House driveway on top (see placeWaffleHouse).
+const roadReachabilityGrid = buildReachabilityGrid();
+let reachabilityGrid = roadReachabilityGrid;
+
+function isReachable(x, y) {
+  const column = Math.floor(x / REACHABILITY_CELL_SIZE);
+  const row = Math.floor(y / REACHABILITY_CELL_SIZE);
+  return roadReachabilityGrid.reachable[row * roadReachabilityGrid.columns + column] === 1;
+}
+
+function buildPickupSpawnPoints() {
+  const points = [];
+  for (const road of mapData.roads) {
+    const length = getPathLength(road.points);
+    for (let distance = PICKUP_SAMPLE_SPACING / 2; distance < length; distance += PICKUP_SAMPLE_SPACING) {
+      const { x, y } = getPointAlongPath(road.points, distance);
+      const distanceFromStart = Math.hypot(x - startingRoadPoint.x, y - startingRoadPoint.y);
+      if (distanceFromStart < PICKUP_MIN_START_DISTANCE) continue;
+      if (!canPlayerOccupy(x, y) || !isReachable(x, y)) continue;
+      points.push({ x, y });
+    }
+  }
+  return points;
+}
+
+const pickupSpawnPoints = buildPickupSpawnPoints();
+
+// A site's building footprint and driveway. The door is at the bottom centre, joined
+// to the nearest point on its street.
+function createWaffleHouse(site) {
+  const [centerX, centerY] = scalePoint([site.x, site.y]);
+  const x = centerX - WAFFLE_HOUSE_WIDTH / 2;
+  const y = centerY - WAFFLE_HOUSE_HEIGHT / 2;
+  const entranceY = y + WAFFLE_HOUSE_HEIGHT;
+  const roadPoint = findNearestRoadPoint(centerX, entranceY);
+  return Object.freeze({
+    id: site.id,
+    street: site.street,
+    road: roadPoint.road,
+    address: makeStreetAddress(roadPoint.road.name, centerX, centerY),
+    x,
+    y,
+    width: WAFFLE_HOUSE_WIDTH,
+    height: WAFFLE_HOUSE_HEIGHT,
+    centerX,
+    centerY,
+    entranceX: centerX,
+    entranceY,
+    roadX: roadPoint.x,
+    roadY: roadPoint.y,
+    accessPath: [[roadPoint.x, roadPoint.y], [centerX, entranceY], [centerX, centerY]],
+  });
+}
+
+// Shortest distance from a rectangle ({ x, y, width, height }) to a polyline, sampled
+// every few pixels. Only used at load, so it favours simplicity over speed.
+function distanceFromRectToPath(rect, points) {
+  let nearest = Infinity;
+  for (let index = 1; index < points.length; index += 1) {
+    const [startX, startY] = points[index - 1];
+    const [endX, endY] = points[index];
+    const steps = Math.max(1, Math.ceil(Math.hypot(endX - startX, endY - startY) / 4));
+    for (let step = 0; step <= steps; step += 1) {
+      const x = startX + ((endX - startX) * step) / steps;
+      const y = startY + ((endY - startY) * step) / steps;
+      const deltaX = Math.max(rect.x - x, 0, x - (rect.x + rect.width));
+      const deltaY = Math.max(rect.y - y, 0, y - (rect.y + rect.height));
+      nearest = Math.min(nearest, Math.hypot(deltaX, deltaY));
+    }
+  }
+  return nearest;
+}
+
+// Why a site doesn't fit the current map, or null if it does. The building and
+// driveway are walkable, so touching another street would open a shortcut round the
+// floods; a flooded driveway would lock the door.
+function findWaffleHouseSiteProblem(house) {
+  const [driveStartX, driveStartY] = house.accessPath[0];
+  const driveLength = Math.hypot(house.entranceX - driveStartX, house.entranceY - driveStartY);
+
+  if (house.road.name.replace(/ (Northeast|Southeast)$/, '') !== house.street) {
+    return `its door is nearest ${house.road.name}, not ${house.street}`;
+  }
+  if (house.x < 0 || house.y < 0 || house.x + house.width > WORLD_WIDTH || house.y + house.height > WORLD_HEIGHT) {
+    return 'it is off the map';
+  }
+  if (driveLength > WAFFLE_HOUSE_MAX_DRIVEWAY_LENGTH) return 'its driveway is too long';
+  for (const road of mapData.roads) {
+    if (distanceFromRectToPath(house, road.points) < road.width / 2 + 8) return `it overlaps ${road.name}`;
+    if (road === house.road) continue;
+    for (let step = 0; step <= 10; step += 1) {
+      const x = driveStartX + ((house.entranceX - driveStartX) * step) / 10;
+      const y = driveStartY + ((house.entranceY - driveStartY) * step) / 10;
+      const reach = road.width / 2 + WAFFLE_HOUSE_DRIVEWAY_REACH + PLAYER_RADIUS;
+      if (distanceToPath(x, y, road.points) < reach) return `its driveway touches ${road.name}`;
+    }
+  }
+  for (const zone of FLOOD_ZONES) {
+    if (distanceToPath(driveStartX, driveStartY, zone.points) < zone.width / 2 + 60) {
+      return `its driveway is in the ${zone.name} flood zone`;
+    }
+  }
+  if (!isReachable(driveStartX, driveStartY)) return 'its street is cut off from the start';
+  return null;
+}
+
+const waffleHouseSites = WAFFLE_HOUSE_SITES.map(createWaffleHouse).filter((house) => {
+  const problem = findWaffleHouseSiteProblem(house);
+  if (problem) console.warn(`Skipping Waffle House site "${house.id}": ${problem}.`);
+  return !problem;
+});
+if (waffleHouseSites.length === 0) throw new Error('No Waffle House site fits the map.');
+
+// Streets Maya (and the T-Rexes) can spawn on.
+const spawnRoads = mapData.roads.filter(
+  (road) => MAYA_SPAWN_STREETS.some((prefix) => road.name.startsWith(prefix))
+    && getPathLength(road.points) >= 120,
+);
+const sodaTabSprite = createSodaTabSprite();
+
+const initialGameState = Object.freeze({
+  neighborhood: 'Inman Park + Cabbagetown',
+  player: Object.freeze({
+    name: 'Trevor',
+    x: startingRoadPoint.x,
+    y: startingRoadPoint.y,
+    facing: 1,
+    isMoving: false,
+    walkTime: 0,
+  }),
+  score: 0,
+  status: 'playing',
+});
+
+function randomBetween(minimum, maximum) {
+  return minimum + Math.random() * (maximum - minimum);
+}
+
+function makeStreetAddress(roadName, x, y) {
+  const addressBlock = Math.abs(Math.floor(x / 90) * 31 + Math.floor(y / 90) * 17) % 400;
+  const houseNumber = (addressBlock + 50) * 2;
+  return `${houseNumber} ${shortenStreetName(roadName)}`;
+}
+
+function createMaya(road, point) {
+  return {
+    name: 'Maya',
+    x: point.x,
+    y: point.y,
+    roadName: road.name,
+    address: makeStreetAddress(road.name, point.x, point.y),
+    addressX: point.x,
+    addressY: point.y,
+    following: false,
+    wanderMode: 'resting',
+    wanderTimer: randomBetween(MAYA_REST_MIN_TIME, MAYA_REST_MAX_TIME),
+    restPose: pickMayaRestPose(),
+    restTime: 0,
+    wanderHeading: Math.random() * Math.PI * 2,
+    facing: 1,
+    isMoving: false,
+    walkTime: 0,
+  };
+}
+
+// Walking distance (world pixels) from a point to every street cell, avoiding blocked
+// cells; Infinity where it can't be reached. Diagonal steps count as one cell, so it
+// runs a little short on diagonal routes, which is fine for spacing spawns.
+function measureWalkingDistances(x, y, blocked) {
+  const { columns, reachable } = roadReachabilityGrid;
+  const cellCount = reachable.length;
+  const lastColumn = columns - 1;
+  const distances = new Float32Array(cellCount).fill(Infinity);
+  const start = findWalkableCell(x, y, roadReachabilityGrid);
+  if (start < 0 || blocked?.[start]) return distances;
+
+  const queue = new Int32Array(cellCount);
+  let head = 0;
+  let tail = 0;
+  queue[tail++] = start;
+  distances[start] = 0;
+  while (head < tail) {
+    const index = queue[head++];
+    const column = index % columns;
+    const nextDistance = distances[index] + REACHABILITY_CELL_SIZE;
+    for (let neighbor = 0; neighbor < GRID_NEIGHBOR_COLUMN_STEPS.length; neighbor += 1) {
+      const columnStep = GRID_NEIGHBOR_COLUMN_STEPS[neighbor];
+      if ((columnStep < 0 && column === 0) || (columnStep > 0 && column === lastColumn)) continue;
+      const next = index + GRID_NEIGHBOR_ROW_STEPS[neighbor] * columns + columnStep;
+      if (next < 0 || next >= cellCount) continue;
+      if (distances[next] !== Infinity || !reachable[next] || blocked?.[next]) continue;
+      distances[next] = nextDistance;
+      queue[tail++] = next;
+    }
+  }
+  return distances;
+}
+
+function walkingDistanceAt(distances, x, y) {
+  const cell = findWalkableCell(x, y, roadReachabilityGrid);
+  return cell < 0 ? Infinity : distances[cell];
+}
+
+// Picks this game's Waffle House and Maya's spot. Every chosen flood zone is treated
+// as deep, so the hero, Maya and Waffle House stay connected however the storm plays
+// out; on top of that, all three are spaced apart by walking distance. When nothing
+// clears every spacing, the most spread-out option wins. Only if no site survives the
+// floods at all (it never should) are the floods ignored.
+function planSpawns(floodZones) {
+  const blocked = new Uint8Array(roadReachabilityGrid.reachable.length);
+  for (const zone of floodZones) {
+    for (const cell of getDeepWaterCells(zone)) blocked[cell] = 1;
+  }
+  const plan = findSpawnPlan(blocked) ?? findSpawnPlan(null);
+  if (!plan) throw new Error('Could not place Waffle House and Maya.');
+  return plan;
+}
+
+function findSpawnPlan(blocked) {
+  const fromTrevor = measureWalkingDistances(startingRoadPoint.x, startingRoadPoint.y, blocked);
+  const isFarEnough = ({ trevorWalk }) => trevorWalk >= WAFFLE_HOUSE_MIN_TREVOR_WALK;
+  const sites = shuffle(waffleHouseSites)
+    .map((house) => ({ house, trevorWalk: walkingDistanceAt(fromTrevor, house.roadX, house.roadY) }))
+    .filter(({ trevorWalk }) => Number.isFinite(trevorWalk))
+    // Sites far enough from the hero first, in random order; the rest only as fallbacks.
+    .sort((first, second) => Number(isFarEnough(second)) - Number(isFarEnough(first)));
+  let best = null;
+
+  for (const { house, trevorWalk } of sites) {
+    const fromWaffleHouse = measureWalkingDistances(house.roadX, house.roadY, blocked);
+    const spot = pickMayaSpot(fromTrevor, fromWaffleHouse);
+    if (!spot) continue;
+    const score = Math.min(trevorWalk / WAFFLE_HOUSE_MIN_TREVOR_WALK, spot.score);
+    if (!best || score > best.score) {
+      best = { waffleHouse: house, mayaRoad: spot.road, mayaPoint: spot.point, trevorWalk, ...spot.walks, score };
+    }
+    if (score >= 1) break;
+  }
+  return best;
+}
+
+// Tries random spots on Maya's streets and returns the first spaced out from both the
+// hero and Waffle House, or else the best-spaced one that's still reachable.
+function pickMayaSpot(fromTrevor, fromWaffleHouse) {
+  let best = null;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const road = spawnRoads[Math.floor(Math.random() * spawnRoads.length)];
+    const point = getPointAlongPath(road.points, Math.random() * getPathLength(road.points));
+    const mayaTrevorWalk = walkingDistanceAt(fromTrevor, point.x, point.y);
+    const mayaWaffleHouseWalk = walkingDistanceAt(fromWaffleHouse, point.x, point.y);
+    if (!Number.isFinite(mayaTrevorWalk) || !Number.isFinite(mayaWaffleHouseWalk)) continue;
+
+    const score = Math.min(
+      mayaTrevorWalk / MAYA_MIN_TREVOR_WALK,
+      mayaWaffleHouseWalk / MAYA_MIN_WAFFLE_HOUSE_WALK,
+    );
+    if (!best || score > best.score) best = { road, point, score, walks: { mayaTrevorWalk, mayaWaffleHouseWalk } };
+    if (score >= 1) break;
+  }
+  return best;
+}
+
+function createTRex(maya, existingTRexes, index) {
+  let fallback = null;
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const road = spawnRoads[Math.floor(Math.random() * spawnRoads.length)];
+    const point = getPointAlongPath(road.points, Math.random() * getPathLength(road.points));
+    const distanceFromTrevor = Math.hypot(point.x - startingRoadPoint.x, point.y - startingRoadPoint.y);
+    const distanceFromMaya = Math.hypot(point.x - maya.x, point.y - maya.y);
+    const distanceFromWaffleHouse = Math.hypot(point.x - waffleHouse.centerX, point.y - waffleHouse.centerY);
+    const distanceFromPack = existingTRexes.length === 0
+      ? Infinity
+      : Math.min(...existingTRexes.map((tRex) => Math.hypot(point.x - tRex.x, point.y - tRex.y)));
+    const safetyScore = Math.min(distanceFromTrevor, distanceFromMaya, distanceFromWaffleHouse, distanceFromPack);
+
+    if (!fallback || safetyScore > fallback.safetyScore) {
+      fallback = { point, safetyScore };
+    }
+    if (
+      distanceFromTrevor < T_REX_MIN_SPAWN_DISTANCE
+      || distanceFromMaya < T_REX_MIN_MAYA_DISTANCE
+      || distanceFromWaffleHouse < T_REX_MIN_WAFFLE_HOUSE_DISTANCE
+      || distanceFromPack < T_REX_MIN_PACK_DISTANCE
+    ) continue;
+
+    return {
+      id: index + 1,
+      x: point.x,
+      y: point.y,
+      heading: Math.random() * Math.PI * 2,
+      facing: 1,
+      isMoving: false,
+      walkTime: 0,
+    };
+  }
+
+  return {
+    id: index + 1,
+    x: fallback.point.x,
+    y: fallback.point.y,
+    heading: Math.random() * Math.PI * 2,
+    facing: 1,
+    isMoving: false,
+    walkTime: 0,
+  };
+}
+
+function createTRexPack(maya) {
+  const tRexes = [];
+  for (let index = 0; index < T_REX_COUNT; index += 1) {
+    tRexes.push(createTRex(maya, tRexes, index));
+  }
+  return tRexes;
+}
+
+function shuffle(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+// Picks this game's flood zones and spreads their start times across the
+// flood window, with a little jitter so the rhythm isn't perfectly even.
+function createFloodZones() {
+  const chosen = shuffle(FLOOD_ZONES).slice(0, WEATHER.floodZoneCount);
+  const [windowStart, windowEnd] = WEATHER.floodWindow;
+  const spacing = (windowEnd - windowStart) / chosen.length;
+
+  return chosen.map((zone, index) => createFloodZone(
+    zone,
+    windowStart + spacing * (index + 0.5) + randomBetween(-0.25, 0.25) * spacing,
+  ));
+}
+
+function createFloodZone(zone, triggerAt) {
+  const length = getPathLength(zone.points);
+  return {
+    ...zone,
+    length,
+    state: 'dry',
+    stateTime: 0,
+    triggerAt,
+    nextSafetyCheckAt: WEATHER.shallowSeconds,
+    puddles: Array.from({ length: Math.max(3, Math.round(length / 45)) }, () => ({
+      distance: randomBetween(0.05, 0.95) * length,
+      offset: randomBetween(-0.3, 0.3) * zone.width,
+      size: randomBetween(0.18, 0.32) * zone.width,
+    })),
+  };
+}
+
+// Scatters waffles and soda tabs across reachable streets, mixed together and kept
+// evenly spaced.
+function createPickups() {
+  const types = shuffle(
+    Object.entries(PICKUP_TYPES).flatMap(([type, { count }]) => Array(count).fill(type)),
+  );
+  const pickups = [];
+
+  for (const point of shuffle(pickupSpawnPoints)) {
+    if (pickups.length === types.length) break;
+    if (isInsideWaffleHouseAccess(point.x, point.y)) continue;
+    const tooClose = pickups.some(
+      (pickup) => Math.hypot(point.x - pickup.x, point.y - pickup.y) < PICKUP_MIN_SPACING,
+    );
+    if (tooClose) continue;
+    pickups.push({
+      type: types[pickups.length],
+      x: point.x,
+      y: point.y,
+      bobOffset: Math.random() * Math.PI * 2,
+    });
+  }
+  return pickups;
+}
+
+function updateScorePanel() {
+  const { waffle, tab } = gameState.collected;
+  waffleCountText.textContent = waffle;
+  tabCountText.textContent = tab;
+  scoreText.textContent = gameState.score;
+  winScoreText.textContent = `Waffles: ${waffle} · Soda tabs: ${tab} · Score: ${gameState.score}`;
+}
+
+function getStormPhase(progress) {
+  return STORM_PHASES.reduce((current, phase) => (progress >= phase.startsAt ? phase : current));
+}
+
+function updateStormPanel() {
+  const percent = Math.round(gameState.storm.progress * 100);
+  stormPhaseText.textContent = getStormPhase(gameState.storm.progress).label;
+  stormFill.style.width = `${percent}%`;
+  stormBar.setAttribute('aria-valuenow', String(percent));
+}
+
+function updateRescuePanel() {
+  mayaAddressText.textContent = gameState.maya.address;
+  waffleHouseAddressText.textContent = waffleHouse.address;
+  rescueStateText.textContent = gameState.status === 'game-over'
+    ? gameState.gameOverTitle
+    : gameState.status === 'won'
+      ? 'Safe at Waffle House!'
+      : gameState.maya.following
+        ? 'Rescued — head to Waffle House!'
+        : `Waiting for ${gameState.player.name}`;
+  rescueCard.classList.toggle('is-rescued', gameState.maya.following);
+  rescueCard.classList.toggle('is-danger', gameState.status === 'game-over');
+}
+
+// Puts this game's Waffle House on the map: its driveway and building become walkable.
+function placeWaffleHouse(house) {
+  waffleHouse = house;
+  const { columns, rows } = roadReachabilityGrid;
+  const reachable = roadReachabilityGrid.reachable.slice();
+  const padding = WAFFLE_HOUSE_DRIVEWAY_REACH + REACHABILITY_CELL_SIZE;
+  const xs = [house.x, house.x + house.width, house.roadX];
+  const ys = [house.y, house.y + house.height, house.roadY];
+  const firstColumn = Math.max(0, Math.floor((Math.min(...xs) - padding) / REACHABILITY_CELL_SIZE));
+  const lastColumn = Math.min(columns - 1, Math.floor((Math.max(...xs) + padding) / REACHABILITY_CELL_SIZE));
+  const firstRow = Math.max(0, Math.floor((Math.min(...ys) - padding) / REACHABILITY_CELL_SIZE));
+  const lastRow = Math.min(rows - 1, Math.floor((Math.max(...ys) + padding) / REACHABILITY_CELL_SIZE));
+
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = firstColumn; column <= lastColumn; column += 1) {
+      const x = (column + 0.5) * REACHABILITY_CELL_SIZE;
+      const y = (row + 0.5) * REACHABILITY_CELL_SIZE;
+      if (isInsideWaffleHouseAccess(x, y)) reachable[row * columns + column] = 1;
+    }
+  }
+  reachabilityGrid = { columns, rows, reachable };
+}
+
+function resetGameState() {
+  const floodZones = createFloodZones();
+  const spawnPlan = planSpawns(floodZones);
+  placeWaffleHouse(spawnPlan.waffleHouse);
+  const maya = createMaya(spawnPlan.mayaRoad, spawnPlan.mayaPoint);
+  gameState = {
+    ...initialGameState,
+    player: { ...initialGameState.player, name: findCharacter(selectedCharacterId).name },
+    maya,
+    tRexes: createTRexPack(maya),
+    pickups: createPickups(),
+    collected: { waffle: 0, tab: 0 },
+    pickupPopups: [],
+    storm: { progress: 0, phase: 'clear', finalSurge: false },
+    floodZones,
+    tickerRefreshTimer: 0,
+  };
+  playerTrail = [{ x: gameState.player.x, y: gameState.player.y }];
+  camera.x = Math.max(0, gameState.player.x - viewport.width / 2);
+  camera.y = Math.max(0, gameState.player.y - viewport.height / 2);
+  isPaused = false;
+  winOverlay.hidden = true;
+  gameOverOverlay.hidden = true;
+  pauseOverlay.hidden = true;
+  startOverlay.hidden = hasStarted;
+  pauseButton.disabled = !hasStarted;
+  pauseButton.textContent = 'Pause game';
+  statusText.textContent = hasStarted
+    ? `Find Maya at ${gameState.maya.address}`
+    : 'Ready — press Start Game to begin.';
+  updateRescuePanel();
+  updateScorePanel();
+  updateStormPanel();
+  weatherTicker.reset();
+}
+
+function tracePath(targetContext, points, closePath = false) {
+  if (points.length === 0) return;
+  targetContext.beginPath();
+  targetContext.moveTo(points[0][0], points[0][1]);
+  for (let index = 1; index < points.length; index += 1) {
+    targetContext.lineTo(points[index][0], points[index][1]);
+  }
+  if (closePath) targetContext.closePath();
+}
+
+function drawPolygons(polygons, fillStyle, strokeStyle) {
+  for (const polygon of polygons) {
+    tracePath(context, polygon.points, true);
+    context.fillStyle = fillStyle;
+    context.fill();
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = 1.5;
+    context.stroke();
+  }
+}
+
+function drawRoads() {
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  // A separate border pass lets intersections merge into continuous surfaces.
+  for (const road of mapData.roads) {
+    tracePath(context, road.points);
+    context.strokeStyle = '#e7e2d7';
+    context.lineWidth = road.width + 18;
+    context.stroke();
+  }
+
+  for (const road of mapData.roads) {
+    tracePath(context, road.points);
+    context.strokeStyle = '#69767c';
+    context.lineWidth = road.width;
+    context.stroke();
+  }
+
+  for (const road of mapData.roads) {
+    if (!['primary', 'secondary', 'tertiary'].includes(road.type)) continue;
+    tracePath(context, road.points);
+    context.strokeStyle = '#f7e8a0';
+    context.lineWidth = 2.5;
+    context.setLineDash([18, 15]);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawKrogStreetTunnel() {
+  const tunnelWidth = 44;
+
+  context.save();
+  context.lineCap = 'butt';
+  context.lineJoin = 'round';
+
+  // A brick-lined shadow distinguishes the tunnel without changing its road geometry.
+  tracePath(context, KROG_TUNNEL_PATH);
+  context.strokeStyle = '#5b3345';
+  context.lineWidth = tunnelWidth + 18;
+  context.stroke();
+
+  tracePath(context, KROG_TUNNEL_PATH);
+  context.strokeStyle = '#2f3f52';
+  context.lineWidth = tunnelWidth;
+  context.stroke();
+
+  // Bright mural strokes echo the colorful walls inside the real Krog Street Tunnel.
+  const muralColors = ['#ff5c8a', '#28d7c0', '#ffd45c', '#9f7aea'];
+  for (let index = 0; index < muralColors.length; index += 1) {
+    tracePath(context, KROG_TUNNEL_PATH);
+    context.strokeStyle = muralColors[index];
+    context.lineWidth = 3;
+    context.setLineDash([12, 42]);
+    context.lineDashOffset = index * -13;
+    context.stroke();
+  }
+  context.setLineDash([]);
+
+  // Warm ceiling lights make the passage easy to spot from either approach.
+  for (const distance of [42, 82, 122, 162]) {
+    const light = getPointAlongPath(KROG_TUNNEL_PATH, distance);
+    context.beginPath();
+    context.arc(light.x, light.y, 3.5, 0, Math.PI * 2);
+    context.fillStyle = '#fff1a8';
+    context.shadowColor = '#ffd45c';
+    context.shadowBlur = 9;
+    context.fill();
+  }
+  context.shadowBlur = 0;
+
+  // Portal bars sit across the road at both tunnel entrances.
+  for (const distance of [4, getPathLength(KROG_TUNNEL_PATH) - 4]) {
+    const portal = getPointAlongPath(KROG_TUNNEL_PATH, distance);
+    context.save();
+    context.translate(portal.x, portal.y);
+    context.rotate(portal.angle + Math.PI / 2);
+    context.fillStyle = '#d88b4a';
+    context.strokeStyle = '#6b3b2a';
+    context.lineWidth = 2;
+    context.fillRect(-tunnelWidth / 2 - 6, -4, tunnelWidth + 12, 8);
+    context.strokeRect(-tunnelWidth / 2 - 6, -4, tunnelWidth + 12, 8);
+    context.restore();
+  }
+
+  const label = getPointAlongPath(KROG_TUNNEL_PATH, 104);
+  context.save();
+  context.translate(label.x, label.y);
+  context.rotate(label.angle);
+  context.font = '900 12px system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.strokeStyle = 'rgba(22, 28, 40, 0.9)';
+  context.lineWidth = 4;
+  context.strokeText('KROG TUNNEL', 0, 0);
+  context.fillStyle = '#fff7d6';
+  context.fillText('KROG TUNNEL', 0, 0);
+  context.restore();
+
+  context.restore();
+}
+
+function shortenStreetName(name) {
+  return name
+    .replace(/^Dekalb/, 'DeKalb')
+    .replace(' Northeast', ' NE')
+    .replace(' Southeast', ' SE');
+}
+
+function getPathLength(points) {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += Math.hypot(
+      points[index][0] - points[index - 1][0],
+      points[index][1] - points[index - 1][1],
+    );
+  }
+  return length;
+}
+
+function getPointAlongPath(points, targetDistance) {
+  let distanceTravelled = 0;
+
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const deltaX = end[0] - start[0];
+    const deltaY = end[1] - start[1];
+    const segmentLength = Math.hypot(deltaX, deltaY);
+
+    if (distanceTravelled + segmentLength >= targetDistance) {
+      const progress = segmentLength === 0 ? 0 : (targetDistance - distanceTravelled) / segmentLength;
+      return {
+        x: start[0] + deltaX * progress,
+        y: start[1] + deltaY * progress,
+        angle: Math.atan2(deltaY, deltaX),
+      };
+    }
+
+    distanceTravelled += segmentLength;
+  }
+
+  const end = points.at(-1);
+  const start = points.at(-2) ?? end;
+  return { x: end[0], y: end[1], angle: Math.atan2(end[1] - start[1], end[0] - start[0]) };
+}
+
+function buildRoadLabels() {
+  const labels = [];
+  const positionsByName = new Map();
+
+  for (const road of mapData.roads) {
+    if (!road.name) continue;
+
+    const length = getPathLength(road.points);
+    if (length < 32) continue;
+
+    const isMajor = MAJOR_ROAD_TYPES.has(road.type);
+    const spacing = isMajor ? 420 : 340;
+    const distances = [];
+
+    if (length <= spacing) {
+      distances.push(length / 2);
+    } else {
+      for (let distance = spacing / 2; distance < length; distance += spacing) {
+        distances.push(distance);
+      }
+    }
+
+    const displayName = shortenStreetName(road.name);
+    const existingPositions = positionsByName.get(displayName) ?? [];
+
+    for (const distance of distances) {
+      const position = getPointAlongPath(road.points, distance);
+      const isDuplicate = existingPositions.some(
+        (existing) => Math.hypot(existing.x - position.x, existing.y - position.y) < LABEL_DEDUPLICATION_DISTANCE,
+      );
+      if (isDuplicate) continue;
+
+      existingPositions.push(position);
+      labels.push({ ...position, name: displayName, isMajor });
+    }
+
+    positionsByName.set(displayName, existingPositions);
+  }
+
+  return labels;
+}
+
+const roadLabels = buildRoadLabels();
+
+function drawRoadLabels() {
+  context.save();
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineJoin = 'round';
+
+  for (const label of roadLabels) {
+    let angle = label.angle;
+    if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+
+    context.save();
+    context.translate(label.x, label.y);
+    context.rotate(angle);
+    context.font = `${label.isMajor ? 750 : 700} ${label.isMajor ? 14 : 12}px system-ui, sans-serif`;
+    context.strokeStyle = 'rgba(35, 48, 52, 0.82)';
+    context.lineWidth = label.isMajor ? 5 : 4;
+    context.strokeText(label.name, 0, 0);
+    context.fillStyle = '#f8f5ec';
+    context.fillText(label.name, 0, 0);
+    context.restore();
+  }
+
+  context.restore();
+}
+
+function drawLandmarks() {
+  context.save();
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+
+  for (const landmark of mapData.landmarks) {
+    // Landmarks with their own sprite already carry a sign.
+    if (landmarkProps.some((prop) => prop.landmarkName === landmark.name)) continue;
+
+    context.beginPath();
+    context.arc(landmark.x, landmark.y, 9, 0, Math.PI * 2);
+    context.fillStyle = landmark.name === 'Springvale Park' ? '#2b8e66' : '#cb5b37';
+    context.fill();
+    context.strokeStyle = '#fffaf0';
+    context.lineWidth = 3;
+    context.stroke();
+
+    context.font = '800 18px system-ui, sans-serif';
+    context.strokeStyle = 'rgba(248, 245, 236, 0.95)';
+    context.lineWidth = 6;
+    context.strokeText(landmark.name, landmark.x, landmark.y - 24);
+    context.fillStyle = '#25493c';
+    context.fillText(landmark.name, landmark.x, landmark.y - 24);
+  }
+
+  context.restore();
+}
+
+function drawWaffleHouse() {
+  const destination = waffleHouse;
+
+  tracePath(context, destination.accessPath);
+  context.strokeStyle = '#e7e2d7';
+  context.lineWidth = 50;
+  context.stroke();
+
+  tracePath(context, destination.accessPath);
+  context.strokeStyle = '#8f9591';
+  context.lineWidth = 34;
+  context.stroke();
+
+  context.fillStyle = 'rgba(24, 35, 30, 0.2)';
+  context.fillRect(destination.x + 7, destination.y + 8, destination.width, destination.height);
+
+  // The sprite fills the destination footprint exactly, door at the bottom centre.
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(waffleHouseSprite, destination.x, destination.y, destination.width, destination.height);
+  context.restore();
+}
+
+// The storm darkens the screen, but Waffle House stays lit like a beacon: it is cut out
+// of the tint, and warm light spills onto the ground around it as the sky gets darker.
+function drawStormLighting() {
+  const destination = waffleHouse;
+  const left = destination.x - Math.round(camera.x);
+  const top = destination.y - Math.round(camera.y);
+  const outsideWaffleHouse = new Path2D();
+  outsideWaffleHouse.rect(0, 0, viewport.width, viewport.height);
+  outsideWaffleHouse.rect(left, top, destination.width, destination.height);
+
+  context.save();
+  context.clip(outsideWaffleHouse, 'evenodd');
+  drawStormTint(context, gameState.storm.progress, WEATHER, viewport.width, viewport.height);
+
+  const glowStrength = getTintAlpha(gameState.storm.progress, WEATHER) / WAFFLE_HOUSE_FULL_GLOW_TINT;
+  if (glowStrength > 0) {
+    const centerX = left + destination.width / 2;
+    const centerY = top + destination.height / 2;
+    const glow = context.createRadialGradient(centerX, centerY, destination.width * 0.35, centerX, centerY, destination.width * 1.3);
+    glow.addColorStop(0, `rgba(255, 214, 120, ${Math.min(1, glowStrength) * 0.3})`);
+    glow.addColorStop(1, 'rgba(255, 214, 120, 0)');
+    context.globalCompositeOperation = 'lighter';
+    context.fillStyle = glow;
+    context.fillRect(0, 0, viewport.width, viewport.height);
+  }
+  context.restore();
+}
+
+function drawLandmarkProps() {
+  context.save();
+  context.imageSmoothingEnabled = false;
+
+  for (const { sprite, x, y } of landmarkProps) {
+    const width = sprite.width * LANDMARK_SPRITE_SCALE;
+    const height = sprite.height * LANDMARK_SPRITE_SCALE;
+    const left = Math.round(x - width / 2);
+    const top = Math.round(y - height / 2);
+
+    context.beginPath();
+    context.ellipse(x + 4, top + height - 3, width * 0.52, 9, 0, 0, Math.PI * 2);
+    context.fillStyle = 'rgba(24, 35, 30, 0.2)';
+    context.fill();
+    context.drawImage(sprite, left, top, width, height);
+  }
+
+  context.restore();
+}
+
+function drawMap() {
+  context.fillStyle = '#a9d596';
+  context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+  drawPolygons(mapData.parks, '#83d5a1', '#62b887');
+  drawRoads();
+  drawKrogStreetTunnel();
+  drawFloodWater();
+  drawLandmarkProps();
+  drawMartaTracks(context, marta);
+  drawRoadLabels();
+  drawLandmarks();
+}
+
+// Draws a pixel sprite centred on the character with a ground shadow. Frame 0 is the
+// standing pose; walking cycles through every frame and bobs on the second stride.
+function drawWalkingSprite(frames, character, scale, strideDuration) {
+  const { isMoving, walkTime } = character;
+  // Wrapped to a valid index even if walkTime is ever negative.
+  const stride = Math.floor(walkTime / strideDuration);
+  const frameIndex = isMoving ? ((stride % frames.length) + frames.length) % frames.length : 0;
+  const bob = isMoving && frameIndex === 1 ? -scale : 0;
+  drawSpriteFrame(frames[frameIndex], character, scale, bob);
+}
+
+// Draws one sprite frame centred on the character, mirrored to match its facing.
+function drawSpriteFrame(frame, { x, y, facing }, scale, bob = 0) {
+  const width = frame.width * scale;
+  const height = frame.height * scale;
+
+  context.beginPath();
+  context.ellipse(x, y + height / 2 - 2, width * 0.36, 4, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(30, 30, 30, 0.28)';
+  context.fill();
+
+  // Sprites face right; mirror them when the character heads left.
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.translate(Math.round(x), Math.round(y + bob));
+  context.scale(facing, 1);
+  context.drawImage(frame, -width / 2, -height / 2, width, height);
+  context.restore();
+}
+
+function drawPlayer() {
+  const { x, y, name } = gameState.player;
+
+  drawWalkingSprite(heroFrames[selectedCharacterId], gameState.player, PLAYER_SPRITE_SCALE, PLAYER_STRIDE_DURATION);
+
+  context.beginPath();
+  context.roundRect(x - 38, y + 30, 76, 25, 7);
+  context.fillStyle = '#17324a';
+  context.fill();
+  context.fillStyle = '#ffffff';
+  context.font = '700 14px system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(name, x, y + 43);
+  context.textAlign = 'start';
+  context.textBaseline = 'alphabetic';
+}
+
+function drawMaya() {
+  const { x, y, following } = gameState.maya;
+
+  if (!following) {
+    const pulse = 20 + Math.sin(performance.now() / 220) * 3;
+    context.beginPath();
+    context.arc(x, y, pulse, 0, Math.PI * 2);
+    context.strokeStyle = 'rgba(233, 79, 145, 0.48)';
+    context.lineWidth = 4;
+    context.stroke();
+  }
+
+  const restPose = getMayaRestPose(gameState.maya);
+  if (restPose) {
+    const poseFrames = mayaFrames[restPose];
+    const frameIndex = Math.floor(gameState.maya.restTime / MAYA_REST_POSE_FRAME_DURATIONS[restPose]) % poseFrames.length;
+    drawSpriteFrame(poseFrames[frameIndex], gameState.maya, MAYA_SPRITE_SCALE);
+  } else {
+    drawWalkingSprite(mayaFrames.walk, gameState.maya, MAYA_SPRITE_SCALE, MAYA_STRIDE_DURATION);
+  }
+
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = '800 13px system-ui, sans-serif';
+  context.strokeStyle = 'rgba(72, 24, 49, 0.9)';
+  context.lineWidth = 4;
+  context.strokeText('Maya', x, y + 27);
+  context.fillStyle = '#fff7e4';
+  context.fillText('Maya', x, y + 27);
+  context.textAlign = 'start';
+  context.textBaseline = 'alphabetic';
+}
+
+function drawTRex(tRex) {
+  const { x, y, id } = tRex;
+  const pulse = 32 + Math.sin(performance.now() / 170) * 2;
+
+  context.beginPath();
+  context.arc(x, y, pulse, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(186, 54, 43, 0.16)';
+  context.fill();
+  context.strokeStyle = 'rgba(186, 54, 43, 0.5)';
+  context.lineWidth = 3;
+  context.stroke();
+
+  drawWalkingSprite(tRexFrames, tRex, T_REX_SPRITE_SCALE, T_REX_STRIDE_DURATION);
+
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = '900 13px system-ui, sans-serif';
+  context.strokeStyle = 'rgba(72, 24, 20, 0.9)';
+  context.lineWidth = 4;
+  context.strokeText(`T-Rex ${id}`, x, y + 34);
+  context.fillStyle = '#fff4d8';
+  context.fillText(`T-Rex ${id}`, x, y + 34);
+  context.textAlign = 'start';
+  context.textBaseline = 'alphabetic';
+}
+
+function drawPickup(pickup) {
+  if (pickup.type === 'tab') drawSodaTab(pickup);
+  else drawWaffle(pickup);
+}
+
+// A bobbing pull tab that glints now and then so it stands out on the road.
+function drawSodaTab(tab) {
+  const now = performance.now() / 1000;
+  const bob = Math.sin(now * 3.3 + tab.bobOffset) * 2;
+  const width = sodaTabSprite.width * SODA_TAB_SCALE;
+  const height = sodaTabSprite.height * SODA_TAB_SCALE;
+
+  context.beginPath();
+  context.ellipse(tab.x, tab.y + height / 2 + 3, width * 0.4, 3, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(40, 30, 10, 0.25)';
+  context.fill();
+
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(sodaTabSprite, Math.round(tab.x - width / 2), Math.round(tab.y - height / 2 + bob), width, height);
+  context.restore();
+
+  const glint = (now * 0.6 + tab.bobOffset) % 2;
+  if (glint < 0.25) {
+    const size = 3 + Math.sin((glint / 0.25) * Math.PI) * 4;
+    const glintX = tab.x + width * 0.3;
+    const glintY = tab.y - height * 0.35 + bob;
+    context.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    context.fillRect(glintX - size / 2, glintY - 1, size, 2);
+    context.fillRect(glintX - 1, glintY - size / 2, 2, size);
+  }
+}
+
+function drawWaffle(waffle) {
+  const bob = Math.sin(performance.now() / 300 + waffle.bobOffset) * 2;
+  const x = waffle.x;
+  const y = waffle.y + bob;
+  const half = WAFFLE_SIZE / 2;
+
+  context.beginPath();
+  context.ellipse(waffle.x, waffle.y + half + 3, half * 0.8, 3, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(40, 30, 10, 0.25)';
+  context.fill();
+
+  context.beginPath();
+  context.roundRect(x - half, y - half, WAFFLE_SIZE, WAFFLE_SIZE, 5);
+  context.fillStyle = '#f2b441';
+  context.fill();
+  context.strokeStyle = '#8a5418';
+  context.lineWidth = 2;
+  context.stroke();
+
+  // A simple grid pattern makes the square read as a waffle.
+  context.beginPath();
+  for (const offset of [-half / 3, half / 3]) {
+    context.moveTo(x + offset, y - half + 2);
+    context.lineTo(x + offset, y + half - 2);
+    context.moveTo(x - half + 2, y + offset);
+    context.lineTo(x + half - 2, y + offset);
+  }
+  context.strokeStyle = '#b87424';
+  context.lineWidth = 1.5;
+  context.stroke();
+}
+
+function drawPickupPopups() {
+  const now = performance.now();
+  context.font = '900 15px system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  for (const popup of gameState.pickupPopups) {
+    const progress = (now - popup.startTime) / (PICKUP_POPUP_DURATION * 1000);
+    const y = popup.y - 16 - progress * 22;
+    context.globalAlpha = Math.max(0, 1 - progress);
+    context.strokeStyle = 'rgba(90, 50, 10, 0.9)';
+    context.lineWidth = 4;
+    context.strokeText(`+${popup.points}`, popup.x, y);
+    context.fillStyle = '#ffe28a';
+    context.fillText(`+${popup.points}`, popup.x, y);
+  }
+  context.globalAlpha = 1;
+  context.textAlign = 'start';
+  context.textBaseline = 'alphabetic';
+}
+
+function canPlayerOccupy(x, y) {
+  if (
+    x - PLAYER_RADIUS < 0 ||
+    x + PLAYER_RADIUS > WORLD_WIDTH ||
+    y - PLAYER_RADIUS < 0 ||
+    y + PLAYER_RADIUS > WORLD_HEIGHT
+  ) {
+    return false;
+  }
+
+  if (isInsideWaffleHouseAccess(x, y)) return true;
+
+  const nearest = findNearestRoadPoint(x, y);
+  const playableRadius = nearest.road.width / 2 - PLAYER_RADIUS + ROAD_FORGIVENESS;
+  return nearest.distance <= playableRadius;
+}
+
+function isInsideWaffleHouseBuilding(x, y) {
+  const destination = waffleHouse;
+  if (!destination) return false;
+  return x >= destination.x
+    && x <= destination.x + destination.width
+    && y >= destination.y
+    && y <= destination.y + destination.height;
+}
+
+function isInsideWaffleHouseAccess(x, y) {
+  if (!waffleHouse) return false;
+  if (isInsideWaffleHouseBuilding(x, y)) return true;
+
+  const accessPath = waffleHouse.accessPath;
+  for (let index = 1; index < accessPath.length; index += 1) {
+    const point = closestPointOnSegment(x, y, accessPath[index - 1], accessPath[index]);
+    if (Math.hypot(x - point.x, y - point.y) <= WAFFLE_HOUSE_DRIVEWAY_REACH) return true;
+  }
+  return false;
+}
+
+function canTRexOccupy(x, y) {
+  if (
+    x - T_REX_ROAD_RADIUS < 0
+    || x + T_REX_ROAD_RADIUS > WORLD_WIDTH
+    || y - T_REX_ROAD_RADIUS < 0
+    || y + T_REX_ROAD_RADIUS > WORLD_HEIGHT
+  ) {
+    return false;
+  }
+  if (isInsideWaffleHouseAccess(x, y)) return true;
+
+  const nearest = findNearestRoadPoint(x, y);
+  const playableRadius = nearest.road.width / 2 - T_REX_ROAD_RADIUS + ROAD_FORGIVENESS;
+  return nearest.distance <= playableRadius;
+}
+
+function movePlayer(deltaX, deltaY) {
+  const distance = Math.hypot(deltaX, deltaY);
+  if (distance === 0) return;
+
+  const startsInDeepWater = getFloodDepthAt(gameState.player.x, gameState.player.y, PLAYER_RADIUS) >= DEEP_WATER;
+  const canStepTo = (x, y) => canPlayerOccupy(x, y)
+    && !isBlockedByDeepWater(x, y, PLAYER_RADIUS, startsInDeepWater);
+
+  const desiredX = gameState.player.x + deltaX;
+  const desiredY = gameState.player.y + deltaY;
+  if (canStepTo(desiredX, desiredY)) {
+    gameState.player.x = desiredX;
+    gameState.player.y = desiredY;
+    return;
+  }
+
+  // At a road edge or bend, preserve speed by sliding along the nearby street
+  // direction that most closely matches the player's intended input.
+  const inputX = deltaX / distance;
+  const inputY = deltaY / distance;
+  let bestSlide = null;
+
+  for (const road of mapData.roads) {
+    const playableRadius = road.width / 2 - PLAYER_RADIUS + ROAD_FORGIVENESS;
+    for (let index = 1; index < road.points.length; index += 1) {
+      const start = road.points[index - 1];
+      const end = road.points[index];
+      const nearest = closestPointOnSegment(gameState.player.x, gameState.player.y, start, end);
+      const roadDistance = Math.hypot(gameState.player.x - nearest.x, gameState.player.y - nearest.y);
+      if (roadDistance > playableRadius + ROAD_SLIDE_SEARCH_PADDING) continue;
+
+      const segmentX = end[0] - start[0];
+      const segmentY = end[1] - start[1];
+      const segmentLength = Math.hypot(segmentX, segmentY);
+      if (segmentLength === 0) continue;
+
+      const tangentX = segmentX / segmentLength;
+      const tangentY = segmentY / segmentLength;
+      const signedAlignment = inputX * tangentX + inputY * tangentY;
+      const alignment = Math.abs(signedAlignment);
+      if (alignment < ROAD_SLIDE_MIN_ALIGNMENT) continue;
+
+      const direction = Math.sign(signedAlignment) || 1;
+      const x = gameState.player.x + tangentX * direction * distance;
+      const y = gameState.player.y + tangentY * direction * distance;
+      if (!canStepTo(x, y)) continue;
+
+      const desiredDistance = Math.hypot(desiredX - x, desiredY - y);
+      const score = alignment * 100 - desiredDistance - roadDistance * 0.15;
+      if (!bestSlide || score > bestSlide.score) bestSlide = { x, y, score };
+    }
+  }
+
+  if (bestSlide) {
+    gameState.player.x = bestSlide.x;
+    gameState.player.y = bestSlide.y;
+    return;
+  }
+
+  const cornerStep = findCornerAssistStep(inputX, inputY, distance, canStepTo);
+  if (cornerStep) {
+    gameState.player.x = cornerStep.x;
+    gameState.player.y = cornerStep.y;
+    return;
+  }
+
+  // Retain axis sliding for tight building corners where there is no road tangent.
+  if (canStepTo(desiredX, gameState.player.y)) gameState.player.x = desiredX;
+  if (canStepTo(gameState.player.x, desiredY)) gameState.player.y = desiredY;
+}
+
+// Corner assist (like Pac-Man's): when Trevor presses toward a side street he's a
+// little past or short of, slide him along his current road toward it instead of
+// stopping him at the curb. Only used when the move he asked for is blocked.
+function findCornerAssistStep(inputX, inputY, distance, canStepTo) {
+  const { x: playerX, y: playerY } = gameState.player;
+  let best = null;
+
+  for (const road of mapData.roads) {
+    for (let index = 1; index < road.points.length; index += 1) {
+      const start = road.points[index - 1];
+      const end = road.points[index];
+      const segmentX = end[0] - start[0];
+      const segmentY = end[1] - start[1];
+      const segmentLength = Math.hypot(segmentX, segmentY);
+      if (segmentLength === 0) continue;
+
+      // Only streets running the way Trevor wants to go.
+      const tangentX = segmentX / segmentLength;
+      const tangentY = segmentY / segmentLength;
+      const alignment = inputX * tangentX + inputY * tangentY;
+      if (Math.abs(alignment) < CORNER_ASSIST_MIN_ALIGNMENT) continue;
+
+      // The street has to continue in that direction from where he'd join it.
+      const along = ((playerX - start[0]) * tangentX + (playerY - start[1]) * tangentY) / segmentLength;
+      if (alignment > 0 ? along >= 1 : along <= 0) continue;
+
+      // Sideways offset from Trevor to the street's centerline.
+      const nearest = closestPointOnSegment(playerX, playerY, start, end);
+      const offsetX = nearest.x - playerX;
+      const offsetY = nearest.y - playerY;
+      const forward = offsetX * tangentX + offsetY * tangentY;
+      const lateralX = offsetX - tangentX * forward;
+      const lateralY = offsetY - tangentY * forward;
+      const lateralDistance = Math.hypot(lateralX, lateralY);
+      if (lateralDistance < 0.5 || lateralDistance > CORNER_ASSIST_RANGE) continue;
+      if (best && lateralDistance >= best.lateralDistance) continue;
+
+      const step = Math.min(distance, lateralDistance);
+      const x = playerX + (lateralX / lateralDistance) * step;
+      const y = playerY + (lateralY / lateralDistance) * step;
+      if (canStepTo(x, y)) best = { x, y, lateralDistance };
+    }
+  }
+
+  return best;
+}
+
+function applyRoadMagnet(deltaTime) {
+  if (isInsideWaffleHouseAccess(gameState.player.x, gameState.player.y)) return;
+
+  const nearest = findNearestRoadPoint(gameState.player.x, gameState.player.y);
+  if (!nearest) return;
+
+  const tangentX = nearest.segmentEnd[0] - nearest.segmentStart[0];
+  const tangentY = nearest.segmentEnd[1] - nearest.segmentStart[1];
+  const tangentLength = Math.hypot(tangentX, tangentY);
+  if (tangentLength === 0) return;
+
+  const unitTangentX = tangentX / tangentLength;
+  const unitTangentY = tangentY / tangentLength;
+  const correctionX = nearest.x - gameState.player.x;
+  const correctionY = nearest.y - gameState.player.y;
+  const forwardCorrection = correctionX * unitTangentX + correctionY * unitTangentY;
+  const lateralX = correctionX - unitTangentX * forwardCorrection;
+  const lateralY = correctionY - unitTangentY * forwardCorrection;
+  const lateralDistance = Math.hypot(lateralX, lateralY);
+  if (lateralDistance < 2) return;
+
+  const distanceToMove = Math.min(lateralDistance, ROAD_MAGNET_SPEED * deltaTime);
+  const ratio = distanceToMove / lateralDistance;
+  const candidateX = gameState.player.x + lateralX * ratio;
+  const candidateY = gameState.player.y + lateralY * ratio;
+
+  const startsInDeepWater = getFloodDepthAt(gameState.player.x, gameState.player.y, PLAYER_RADIUS) >= DEEP_WATER;
+  if (
+    canPlayerOccupy(candidateX, candidateY)
+    && !isBlockedByDeepWater(candidateX, candidateY, PLAYER_RADIUS, startsInDeepWater)
+  ) {
+    gameState.player.x = candidateX;
+    gameState.player.y = candidateY;
+  }
+}
+
+function updatePlayer(deltaTime) {
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  const player = gameState.player;
+  const previousX = player.x;
+  const previousY = player.y;
+  const horizontal = Number(pressedKeys.has('ArrowRight')) - Number(pressedKeys.has('ArrowLeft'));
+  const vertical = Number(pressedKeys.has('ArrowDown')) - Number(pressedKeys.has('ArrowUp'));
+
+  if (horizontal !== 0 || vertical !== 0) {
+    const directionLength = Math.hypot(horizontal, vertical);
+    const distance = PLAYER_SPEED * deltaTime * getWadingSpeedMultiplier(player.x, player.y);
+    const stepCount = Math.max(1, Math.ceil(distance / PLAYER_MOVEMENT_SUBSTEP));
+    const stepX = (horizontal / directionLength) * distance / stepCount;
+    const stepY = (vertical / directionLength) * distance / stepCount;
+    for (let step = 0; step < stepCount; step += 1) movePlayer(stepX, stepY);
+    applyRoadMagnet(deltaTime);
+  }
+
+  updateWalkAnimation(player, previousX, previousY, deltaTime);
+}
+
+// Movement drives a sprite: face the direction of travel and animate its legs. Small
+// sideways drift (road corrections, mostly-vertical pursuit) doesn't flip the facing.
+function updateWalkAnimation(character, previousX, previousY, deltaTime) {
+  const movedX = character.x - previousX;
+  const movedDistance = Math.hypot(movedX, character.y - previousY);
+  character.isMoving = movedDistance > 0.05;
+  if (Math.abs(movedX) > Math.max(0.05, movedDistance * 0.25)) character.facing = Math.sign(movedX);
+  character.walkTime = character.isMoving ? character.walkTime + deltaTime : 0;
+}
+
+function recordPlayerTrail() {
+  const latest = playerTrail.at(-1);
+  if (latest && Math.hypot(gameState.player.x - latest.x, gameState.player.y - latest.y) < 4) return;
+  playerTrail.push({ x: gameState.player.x, y: gameState.player.y });
+  if (playerTrail.length > 180) playerTrail.shift();
+}
+
+function getMayaTrailTarget() {
+  let distance = 0;
+  for (let index = playerTrail.length - 1; index > 0; index -= 1) {
+    const newer = playerTrail[index];
+    const older = playerTrail[index - 1];
+    const segmentLength = Math.hypot(newer.x - older.x, newer.y - older.y);
+    if (distance + segmentLength >= MAYA_FOLLOW_DISTANCE) {
+      const progress = (MAYA_FOLLOW_DISTANCE - distance) / segmentLength;
+      return {
+        x: newer.x + (older.x - newer.x) * progress,
+        y: newer.y + (older.y - newer.y) * progress,
+      };
+    }
+    distance += segmentLength;
+  }
+  return playerTrail[0];
+}
+
+function canMayaOccupy(x, y) {
+  if (
+    x - MAYA_RADIUS < 0
+    || x + MAYA_RADIUS > WORLD_WIDTH
+    || y - MAYA_RADIUS < 0
+    || y + MAYA_RADIUS > WORLD_HEIGHT
+  ) {
+    return false;
+  }
+
+  const nearest = findNearestRoadPoint(x, y);
+  const playableRadius = nearest.road.width / 2 - MAYA_RADIUS + ROAD_FORGIVENESS;
+  return nearest.distance <= playableRadius;
+}
+
+function chooseMayaWanderHeading(maya) {
+  const headings = [];
+
+  for (const road of mapData.roads) {
+    const playableRadius = road.width / 2 - MAYA_RADIUS + ROAD_FORGIVENESS;
+    for (let index = 1; index < road.points.length; index += 1) {
+      const start = road.points[index - 1];
+      const end = road.points[index];
+      const nearest = closestPointOnSegment(maya.x, maya.y, start, end);
+      if (Math.hypot(maya.x - nearest.x, maya.y - nearest.y) > playableRadius + 8) continue;
+
+      const heading = Math.atan2(end[1] - start[1], end[0] - start[0]);
+      headings.push(heading, heading + Math.PI);
+    }
+  }
+
+  if (headings.length === 0) return Math.random() * Math.PI * 2;
+  const forwardChoices = headings.filter(
+    (heading) => angleDifference(heading, maya.wanderHeading) < Math.PI * 0.72,
+  );
+  const choices = forwardChoices.length > 0 && Math.random() < 0.7 ? forwardChoices : headings;
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+function updateMayaAddress(maya) {
+  const nearest = findNearestRoadPoint(maya.x, maya.y);
+  const movedSinceUpdate = Math.hypot(maya.x - maya.addressX, maya.y - maya.addressY);
+  const changedStreets = nearest.road.name !== maya.roadName;
+  if (!changedStreets && movedSinceUpdate < MAYA_ADDRESS_UPDATE_DISTANCE) return;
+
+  maya.roadName = nearest.road.name;
+  maya.addressX = maya.x;
+  maya.addressY = maya.y;
+  maya.address = makeStreetAddress(maya.roadName, maya.x, maya.y);
+  statusText.textContent = `Find Maya at ${maya.address}`;
+  updateRescuePanel();
+}
+
+function updateMayaWander(maya, deltaTime) {
+  maya.wanderTimer -= deltaTime;
+
+  if (maya.wanderMode === 'resting') {
+    if (maya.wanderTimer > 0) return;
+    maya.wanderMode = 'walking';
+    maya.wanderTimer = randomBetween(MAYA_WANDER_MIN_TIME, MAYA_WANDER_MAX_TIME);
+    maya.wanderHeading = chooseMayaWanderHeading(maya);
+  }
+
+  const step = MAYA_WANDER_SPEED * deltaTime * getWadingSpeedMultiplier(maya.x, maya.y);
+  const startsInDeepWater = getFloodDepthAt(maya.x, maya.y, MAYA_RADIUS) >= DEEP_WATER;
+  let move = null;
+  for (let index = 0; index < 20; index += 1) {
+    const direction = index === 0 ? 0 : (index % 2 === 0 ? -1 : 1);
+    const offset = Math.ceil(index / 2) * (Math.PI / 18) * direction;
+    const heading = maya.wanderHeading + offset;
+    const x = maya.x + Math.cos(heading) * step;
+    const y = maya.y + Math.sin(heading) * step;
+    if (canMayaOccupy(x, y) && !isBlockedByDeepWater(x, y, MAYA_RADIUS, startsInDeepWater)) {
+      move = { x, y, heading };
+      break;
+    }
+  }
+
+  if (move) {
+    maya.x = move.x;
+    maya.y = move.y;
+    maya.wanderHeading = move.heading;
+    updateMayaAddress(maya);
+  } else {
+    maya.wanderTimer = 0;
+  }
+
+  if (maya.wanderTimer > 0) return;
+  maya.wanderMode = 'resting';
+  maya.wanderTimer = randomBetween(MAYA_REST_MIN_TIME, MAYA_REST_MAX_TIME);
+  maya.restPose = pickMayaRestPose();
+  maya.restTime = 0;
+}
+
+function pickMayaRestPose() {
+  return Math.random() < MAYA_SNIFF_CHANCE ? 'sniff' : 'sit';
+}
+
+// Maya only sniffs or sits while she's waiting to be found; once she's following
+// Trevor she just walks (or stands) behind him.
+function getMayaRestPose(maya) {
+  if (maya.following || maya.wanderMode !== 'resting') return null;
+  return maya.restPose;
+}
+
+function updateMaya(deltaTime) {
+  const maya = gameState.maya;
+  const previousX = maya.x;
+  const previousY = maya.y;
+
+  moveMaya(deltaTime);
+  updateWalkAnimation(maya, previousX, previousY, deltaTime);
+  maya.restTime = getMayaRestPose(maya) ? maya.restTime + deltaTime : 0;
+}
+
+function moveMaya(deltaTime) {
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  const maya = gameState.maya;
+
+  if (!maya.following) {
+    updateMayaWander(maya, deltaTime);
+    const distance = Math.hypot(gameState.player.x - maya.x, gameState.player.y - maya.y);
+    if (distance <= MAYA_PICKUP_DISTANCE) {
+      maya.following = true;
+      gameState.status = 'maya-rescued';
+      playerTrail = [{ x: gameState.player.x, y: gameState.player.y }];
+      statusText.textContent = `You found Maya! She is following ${gameState.player.name}.`;
+      updateRescuePanel();
+    }
+    return;
+  }
+
+  recordPlayerTrail();
+  const target = getMayaTrailTarget();
+  const deltaX = target.x - maya.x;
+  const deltaY = target.y - maya.y;
+  const distance = Math.hypot(deltaX, deltaY);
+  if (distance < 0.5) return;
+
+  const step = Math.min(distance, MAYA_FOLLOW_SPEED * deltaTime * getWadingSpeedMultiplier(maya.x, maya.y));
+  maya.x += (deltaX / distance) * step;
+  maya.y += (deltaY / distance) * step;
+}
+
+function angleDifference(first, second) {
+  return Math.abs(Math.atan2(Math.sin(first - second), Math.cos(first - second)));
+}
+
+function updateTRex(tRex, deltaTime) {
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  const previousX = tRex.x;
+  const previousY = tRex.y;
+  const desiredAngle = Math.atan2(gameState.player.y - tRex.y, gameState.player.x - tRex.x);
+  const step = T_REX_SPEED * deltaTime;
+  // T-Rexes won't wade in (from the depth set by tRexBlockedFrom), but can walk out.
+  const startsInBlockingWater = getFloodDepthAt(tRex.x, tRex.y, T_REX_ROAD_RADIUS) >= T_REX_BLOCKING_DEPTH;
+  let bestMove = null;
+
+  // Try the direct pursuit angle first, then progressively wider alternatives.
+  for (let index = 0; index < 24; index += 1) {
+    const direction = index === 0 ? 0 : (index % 2 === 0 ? -1 : 1);
+    const offset = Math.ceil(index / 2) * (Math.PI / 12) * direction;
+    const angle = desiredAngle + offset;
+    const x = tRex.x + Math.cos(angle) * step;
+    const y = tRex.y + Math.sin(angle) * step;
+    if (!canTRexOccupy(x, y)) continue;
+    if (!startsInBlockingWater && getFloodDepthAt(x, y, T_REX_ROAD_RADIUS) >= T_REX_BLOCKING_DEPTH) continue;
+
+    const distanceToTrevor = Math.hypot(gameState.player.x - x, gameState.player.y - y);
+    const steeringCost = angleDifference(angle, tRex.heading) * 1.5;
+    const score = distanceToTrevor + steeringCost;
+    if (!bestMove || score < bestMove.score) bestMove = { x, y, angle, score };
+  }
+
+  if (bestMove) {
+    tRex.x = bestMove.x;
+    tRex.y = bestMove.y;
+    tRex.heading = bestMove.angle;
+  }
+  updateWalkAnimation(tRex, previousX, previousY, deltaTime);
+
+  const catchDistance = Math.hypot(gameState.player.x - tRex.x, gameState.player.y - tRex.y);
+  if (catchDistance > T_REX_CATCH_DISTANCE) return;
+
+  triggerGameOver({
+    eyebrow: 'Chomp!',
+    title: `A T-Rex caught ${gameState.player.name}!`,
+    status: `Game over — T-Rex ${tRex.id} caught ${gameState.player.name}!`,
+  });
+}
+
+function triggerGameOver({ eyebrow, title, status }) {
+  gameState.status = 'game-over';
+  gameState.gameOverTitle = title;
+  pressedKeys.clear();
+  pauseButton.disabled = true;
+  statusText.textContent = status;
+  gameOverEyebrow.textContent = eyebrow;
+  gameOverTitle.textContent = title;
+  gameOverOverlay.hidden = false;
+  updateRescuePanel();
+}
+
+const FLOOD_DEPTH = { dry: 0, warning: 0, shallow: 1, deep: 2 };
+const SHALLOW_WATER = FLOOD_DEPTH.shallow;
+const DEEP_WATER = FLOOD_DEPTH.deep;
+const T_REX_BLOCKING_DEPTH = FLOOD_DEPTH[WEATHER.tRexBlockedFrom];
+
+function distanceToPath(x, y, points) {
+  let nearest = Infinity;
+  for (let index = 1; index < points.length; index += 1) {
+    const point = closestPointOnSegment(x, y, points[index - 1], points[index]);
+    nearest = Math.min(nearest, Math.hypot(x - point.x, y - point.y));
+  }
+  return nearest;
+}
+
+// Deepest water at a point: 0 = dry (or only a warning), 1 = shallow, 2 = deep.
+// Padding lets a character's body, not just its center, touch the water.
+function getFloodDepthAt(x, y, padding = 0) {
+  let depth = 0;
+  for (const zone of gameState.floodZones) {
+    const zoneDepth = FLOOD_DEPTH[zone.state];
+    if (zoneDepth <= depth) continue;
+    if (distanceToPath(x, y, zone.points) <= zone.width / 2 + padding) depth = zoneDepth;
+  }
+  return depth;
+}
+
+function getWadingSpeedMultiplier(x, y) {
+  return getFloodDepthAt(x, y) >= SHALLOW_WATER ? WEATHER.shallowSpeedMultiplier : 1;
+}
+
+// Deep water blocks stepping in, never stepping out, so nobody is trapped when
+// a zone deepens around them.
+function isBlockedByDeepWater(x, y, padding, startsInDeepWater) {
+  return !startsInDeepWater && getFloodDepthAt(x, y, padding) >= DEEP_WATER;
+}
+
+// Each chosen zone moves dry → warning → shallow → deep on its own timer once
+// the storm clock reaches its trigger point.
+function updateFloodZones(deltaTime) {
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  // During the final surge the surge alert stays up instead of per-zone updates.
+  const announce = (level, message) => {
+    if (!gameState.storm.finalSurge) weatherTicker.alert(level, message);
+  };
+
+  for (const zone of gameState.floodZones) {
+    if (zone.state === 'dry') {
+      if (gameState.storm.progress < zone.triggerAt) continue;
+      zone.state = 'warning';
+      zone.stateTime = 0;
+      announce('flood', `${zone.name} is starting to flood`);
+      continue;
+    }
+
+    zone.stateTime += deltaTime;
+    if (zone.state === 'warning' && zone.stateTime >= WEATHER.warningSeconds) {
+      zone.state = 'shallow';
+      zone.stateTime = 0;
+      announce('flood', `${zone.name} is flooded — wade with care`);
+    } else if (zone.state === 'shallow' && zone.stateTime >= zone.nextSafetyCheckAt) {
+      // Hold at shallow (still wadeable) while going deep would cut Trevor off
+      // from Maya or Waffle House; try again in a second.
+      if (!canFloodSafely(zone)) {
+        zone.nextSafetyCheckAt = zone.stateTime + 1;
+        continue;
+      }
+      zone.state = 'deep';
+      zone.stateTime = 0;
+      announce('closed', `${zone.name} is underwater — find another way`);
+    }
+  }
+}
+
+// Nearest walkable grid cell to a point, or -1 if none is close by.
+function findWalkableCell(x, y, grid = reachabilityGrid) {
+  const { columns, rows, reachable } = grid;
+  const column = Math.floor(x / REACHABILITY_CELL_SIZE);
+  const row = Math.floor(y / REACHABILITY_CELL_SIZE);
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+
+  for (let rowStep = -2; rowStep <= 2; rowStep += 1) {
+    for (let columnStep = -2; columnStep <= 2; columnStep += 1) {
+      const nextColumn = column + columnStep;
+      const nextRow = row + rowStep;
+      if (nextColumn < 0 || nextRow < 0 || nextColumn >= columns || nextRow >= rows) continue;
+      const index = nextRow * columns + nextColumn;
+      if (!reachable[index]) continue;
+      const distance = Math.hypot(
+        (nextColumn + 0.5) * REACHABILITY_CELL_SIZE - x,
+        (nextRow + 0.5) * REACHABILITY_CELL_SIZE - y,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+  }
+  return bestIndex;
+}
+
+// Grid cells Trevor can't step into once this zone is deep (cached per zone).
+function getDeepWaterCells(zone) {
+  if (zone.deepWaterCells) return zone.deepWaterCells;
+  const { columns, rows } = reachabilityGrid;
+  const cells = [];
+  const reach = zone.width / 2 + PLAYER_RADIUS;
+  const xs = zone.points.map((point) => point[0]);
+  const ys = zone.points.map((point) => point[1]);
+  const firstColumn = Math.max(0, Math.floor((Math.min(...xs) - reach) / REACHABILITY_CELL_SIZE));
+  const lastColumn = Math.min(columns - 1, Math.floor((Math.max(...xs) + reach) / REACHABILITY_CELL_SIZE));
+  const firstRow = Math.max(0, Math.floor((Math.min(...ys) - reach) / REACHABILITY_CELL_SIZE));
+  const lastRow = Math.min(rows - 1, Math.floor((Math.max(...ys) + reach) / REACHABILITY_CELL_SIZE));
+
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = firstColumn; column <= lastColumn; column += 1) {
+      const x = (column + 0.5) * REACHABILITY_CELL_SIZE;
+      const y = (row + 0.5) * REACHABILITY_CELL_SIZE;
+      if (distanceToPath(x, y, zone.points) <= reach) cells.push(row * columns + column);
+    }
+  }
+  zone.deepWaterCells = Int32Array.from(cells);
+  return zone.deepWaterCells;
+}
+
+// Would Trevor still reach Waffle House (and Maya, if she isn't following yet)
+// with this zone deep on top of the ones already deep? Walks the precomputed
+// walkable grid, so it's cheap enough to run mid-game.
+function canFloodSafely(candidate) {
+  const { player, maya } = gameState;
+
+  // Trevor can't wade into deep water to fetch her, so never flood over Maya.
+  const mayaReach = candidate.width / 2 + MAYA_PICKUP_DISTANCE;
+  if (!maya.following && distanceToPath(maya.x, maya.y, candidate.points) <= mayaReach) return false;
+
+  const { columns, reachable } = reachabilityGrid;
+  const blocked = new Uint8Array(reachable.length);
+  for (const zone of gameState.floodZones) {
+    if (zone !== candidate && zone.state !== 'deep') continue;
+    // Trevor can move freely inside deep water he's already standing in.
+    if (distanceToPath(player.x, player.y, zone.points) <= zone.width / 2 + PLAYER_RADIUS) continue;
+    for (const cell of getDeepWaterCells(zone)) blocked[cell] = 1;
+  }
+
+  const start = findWalkableCell(player.x, player.y);
+  const targets = [findWalkableCell(waffleHouse.roadX, waffleHouse.roadY)];
+  if (!maya.following) targets.push(findWalkableCell(maya.x, maya.y));
+  if (start < 0 || targets.includes(-1)) return false;
+
+  // Breadth-first search over flat cell indexes, stopping once every target is found.
+  const cellCount = reachable.length;
+  const lastColumn = columns - 1;
+  const visited = new Uint8Array(cellCount);
+  const queue = new Int32Array(cellCount);
+  let head = 0;
+  let tail = 0;
+  let targetsLeft = new Set(targets).size;
+  queue[tail++] = start;
+  visited[start] = 1;
+  if (targets.includes(start)) targetsLeft -= 1;
+
+  while (head < tail && targetsLeft > 0) {
+    const index = queue[head++];
+    const column = index % columns;
+    for (let neighbor = 0; neighbor < GRID_NEIGHBOR_COLUMN_STEPS.length; neighbor += 1) {
+      const columnStep = GRID_NEIGHBOR_COLUMN_STEPS[neighbor];
+      if ((columnStep < 0 && column === 0) || (columnStep > 0 && column === lastColumn)) continue;
+      const next = index + GRID_NEIGHBOR_ROW_STEPS[neighbor] * columns + columnStep;
+      if (next < 0 || next >= cellCount) continue;
+      if (visited[next] || !reachable[next] || blocked[next]) continue;
+      visited[next] = 1;
+      queue[tail++] = next;
+      if (targets.includes(next)) targetsLeft -= 1;
+    }
+  }
+
+  return targetsLeft === 0;
+}
+
+function strokeZonePath(zone, strokeStyle, lineWidth, dash = []) {
+  tracePath(context, zone.points);
+  context.strokeStyle = strokeStyle;
+  context.lineWidth = lineWidth;
+  context.setLineDash(dash);
+  context.stroke();
+}
+
+function drawFloodWater() {
+  const now = performance.now() / 1000;
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  for (const zone of gameState.floodZones) {
+    if (zone.state === 'warning') {
+      // Puddles grow over the warning period.
+      const growth = Math.min(1, zone.stateTime / WEATHER.warningSeconds);
+      context.fillStyle = 'rgba(88, 158, 214, 0.55)';
+      for (const puddle of zone.puddles) {
+        const point = getPointAlongPath(zone.points, puddle.distance);
+        const normalX = -Math.sin(point.angle);
+        const normalY = Math.cos(point.angle);
+        const radius = puddle.size * (0.45 + growth * 0.55);
+        context.beginPath();
+        context.ellipse(
+          point.x + normalX * puddle.offset,
+          point.y + normalY * puddle.offset,
+          radius * 1.5,
+          radius,
+          point.angle,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+      }
+    } else if (zone.state === 'shallow') {
+      strokeZonePath(zone, 'rgba(88, 158, 214, 0.62)', zone.width - 2);
+      context.lineDashOffset = -now * 18;
+      strokeZonePath(zone, 'rgba(225, 244, 255, 0.55)', 2, [6, 22]);
+    } else if (zone.state === 'deep') {
+      strokeZonePath(zone, '#2c6aa8', zone.width + 8);
+      context.lineDashOffset = -now * 26;
+      strokeZonePath(zone, 'rgba(210, 236, 255, 0.7)', 3, [10, 18]);
+      context.lineDashOffset = -now * 26 + 14;
+      strokeZonePath(zone, 'rgba(160, 210, 245, 0.5)', zone.width * 0.5, [4, 24]);
+    }
+  }
+
+  context.setLineDash([]);
+  context.lineDashOffset = 0;
+  context.restore();
+}
+
+// Expanding rings at a character's feet show they're wading (and why they slowed down).
+function drawWadingRipples(character) {
+  if (getFloodDepthAt(character.x, character.y) < SHALLOW_WATER) return;
+
+  const now = performance.now() / 1000;
+  context.save();
+  context.lineWidth = 2;
+  for (let ring = 0; ring < 2; ring += 1) {
+    const progress = (now * 1.2 + ring * 0.5) % 1;
+    context.beginPath();
+    context.ellipse(character.x, character.y + 12, 10 + progress * 16, 4 + progress * 6, 0, 0, Math.PI * 2);
+    context.strokeStyle = `rgba(225, 244, 255, ${0.8 * (1 - progress)})`;
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawRoadClosedBarrier(zone, distance) {
+  const point = getPointAlongPath(zone.points, distance);
+  const halfWidth = zone.width / 2 + 4;
+  context.save();
+  context.translate(point.x, point.y);
+  context.rotate(point.angle + Math.PI / 2);
+  context.fillStyle = '#ffffff';
+  context.fillRect(-halfWidth, -4, halfWidth * 2, 8);
+  context.fillStyle = '#d63a2f';
+  for (let stripe = -halfWidth; stripe < halfWidth; stripe += 12) {
+    context.fillRect(stripe, -4, 6, 8);
+  }
+  context.strokeStyle = '#5a1b16';
+  context.lineWidth = 1.5;
+  context.strokeRect(-halfWidth, -4, halfWidth * 2, 8);
+  context.restore();
+}
+
+function drawFloodMarkers() {
+  const pulse = 1 + Math.sin(performance.now() / 180) * 0.12;
+
+  for (const zone of gameState.floodZones) {
+    if (zone.state === 'dry') continue;
+
+    if (zone.state === 'deep') {
+      drawRoadClosedBarrier(zone, 2);
+      drawRoadClosedBarrier(zone, zone.length - 2);
+    }
+
+    if (zone.state !== 'warning') continue;
+    const middle = getPointAlongPath(zone.points, zone.length / 2);
+    context.beginPath();
+    context.arc(middle.x, middle.y - 30, 14 * pulse, 0, Math.PI * 2);
+    context.fillStyle = '#f2a516';
+    context.fill();
+    context.strokeStyle = '#fffaf0';
+    context.lineWidth = 3;
+    context.stroke();
+    context.fillStyle = '#3b2314';
+    context.font = '900 17px system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText('!', middle.x, middle.y - 29);
+    context.textAlign = 'start';
+    context.textBaseline = 'alphabetic';
+  }
+}
+
+function updateStorm(deltaTime) {
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  const storm = gameState.storm;
+  const previousPercent = Math.round(storm.progress * 100);
+  if (storm.progress < 1) {
+    const clockSpeed = gameState.maya.following ? WEATHER.rescuedClockMultiplier : 1;
+    storm.progress = Math.min(1, storm.progress + (deltaTime / WEATHER.stormDurationSeconds) * clockSpeed);
+  }
+
+  const phase = getStormPhase(storm.progress);
+  const phaseChanged = phase.id !== storm.phase;
+  if (phaseChanged) {
+    storm.phase = phase.id;
+    if (phase.message) weatherTicker.alert(phase.tickerLevel, phase.message);
+  }
+  if (phaseChanged || Math.round(storm.progress * 100) !== previousPercent) updateStormPanel();
+
+  if (storm.progress < 1 || storm.finalSurge) return;
+
+  if (WEATHER.onStormFull === 'lose') {
+    triggerGameOver({
+      eyebrow: 'Evacuate!',
+      title: 'The storm flooded the neighborhood!',
+      status: `Game over — the storm arrived before ${gameState.player.name} reached Waffle House.`,
+    });
+    return;
+  }
+
+  // Gentle mode: no loss. Every candidate zone not already in play starts
+  // flooding now; the safety check still keeps a route to Waffle House open.
+  storm.finalSurge = true;
+  const activeZoneIds = new Set(gameState.floodZones.map((zone) => zone.id));
+  for (const zone of FLOOD_ZONES) {
+    if (!activeZoneIds.has(zone.id)) gameState.floodZones.push(createFloodZone(zone, 0));
+  }
+  weatherTicker.alert('breaking', 'FINAL SURGE — all roads flooding. Get to Waffle House!');
+}
+
+const TICKER_ROUNDUP_INTERVAL = 1; // seconds between roundup refreshes
+const ZONE_TICKER_LABELS = { warning: 'FLOOD WATCH', shallow: 'FLOODED', deep: 'CLOSED' };
+const ZONE_TICKER_ORDER = { deep: 0, shallow: 1, warning: 2 };
+const MAX_TICKER_ZONES = 4; // keeps one pass of the roundup short
+
+function getRainLabel(intensity) {
+  if (intensity < 0.35) return 'LIGHT';
+  if (intensity < 0.7) return 'STEADY';
+  if (intensity < 0.95) return 'HEAVY';
+  return 'TORRENTIAL';
+}
+
+// The scrolling roundup: road conditions, rain, storm progress, Maya and the
+// (real!) Waffle House Index, which rates storms by whether Waffle House is open.
+function updateTickerRoundup(deltaTime) {
+  const { storm, maya } = gameState;
+  if (storm.progress < WEATHER.rainStartsAt) return;
+  weatherTicker.show();
+
+  gameState.tickerRefreshTimer -= deltaTime;
+  if (gameState.tickerRefreshTimer > 0) return;
+  gameState.tickerRefreshTimer = TICKER_ROUNDUP_INTERVAL;
+
+  const activeZones = gameState.floodZones
+    .filter((zone) => zone.state !== 'dry')
+    .sort((first, second) => ZONE_TICKER_ORDER[first.state] - ZONE_TICKER_ORDER[second.state]);
+  const anyClosed = activeZones.some((zone) => zone.state === 'deep');
+  const waffleHouseIndex = storm.finalSurge
+    ? 'RED — …except this one. It never closes.'
+    : anyClosed
+      ? 'YELLOW — limited menu, still open'
+      : 'GREEN — full menu, open 24/7';
+
+  const extraZoneCount = activeZones.length - MAX_TICKER_ZONES;
+  const items = [
+    ...activeZones
+      .slice(0, MAX_TICKER_ZONES)
+      .map((zone) => `${zone.name}: ${ZONE_TICKER_LABELS[zone.state]}`),
+    ...(extraZoneCount > 0 ? [`+${extraZoneCount} more streets flooding`] : []),
+    `Rain: ${getRainLabel(getRainIntensity(storm.progress, WEATHER))}`,
+    `Storm: ${Math.round(storm.progress * 100)}%`,
+    maya.following
+      ? `Maya: found safe, headed to Waffle House with ${gameState.player.name}`
+      : `Missing dog: Maya, last seen near ${maya.address}`,
+    `🧇 Waffle House Index: ${waffleHouseIndex}`,
+  ];
+  const level = storm.finalSurge ? 'breaking' : anyClosed ? 'closed' : activeZones.length > 0 ? 'flood' : 'alert';
+  weatherTicker.setRoundup(items, level);
+}
+
+function updateTRexPack(deltaTime) {
+  for (const tRex of gameState.tRexes) {
+    updateTRex(tRex, deltaTime);
+    if (gameState.status === 'game-over') break;
+  }
+}
+
+function updatePickups() {
+  const now = performance.now();
+  gameState.pickupPopups = gameState.pickupPopups.filter(
+    (popup) => now - popup.startTime < PICKUP_POPUP_DURATION * 1000,
+  );
+  if (gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  const { x, y } = gameState.player;
+  const remaining = [];
+  for (const pickup of gameState.pickups) {
+    if (Math.hypot(pickup.x - x, pickup.y - y) > PICKUP_DISTANCE) {
+      remaining.push(pickup);
+      continue;
+    }
+    const { points } = PICKUP_TYPES[pickup.type];
+    gameState.score += points;
+    gameState.collected[pickup.type] += 1;
+    gameState.pickupPopups.push({ x: pickup.x, y: pickup.y, points, startTime: now });
+  }
+
+  if (remaining.length === gameState.pickups.length) return;
+  gameState.pickups = remaining;
+  updateScorePanel();
+}
+
+function updateWinCondition() {
+  if (gameState.status === 'won' || gameState.status === 'game-over' || !gameState.maya.following) return;
+
+  const trevorIsInside = isInsideWaffleHouseBuilding(gameState.player.x, gameState.player.y);
+  const mayaHasArrived = isInsideWaffleHouseAccess(gameState.maya.x, gameState.maya.y);
+  if (!trevorIsInside || !mayaHasArrived) return;
+
+  gameState.status = 'won';
+  pressedKeys.clear();
+  pauseButton.disabled = true;
+  statusText.textContent = `You win! ${gameState.player.name} and Maya reached Waffle House with ${gameState.score} points.`;
+  winHeroNameText.textContent = gameState.player.name;
+  winOverlay.hidden = false;
+  updateRescuePanel();
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(value, maximum));
+}
+
+function updateCamera() {
+  const playerScreenX = gameState.player.x - camera.x;
+  const playerScreenY = gameState.player.y - camera.y;
+
+  const deadZone = {
+    left: viewport.width * CAMERA_DEAD_ZONE.left,
+    right: viewport.width * CAMERA_DEAD_ZONE.right,
+    top: viewport.height * CAMERA_DEAD_ZONE.top,
+    bottom: viewport.height * CAMERA_DEAD_ZONE.bottom,
+  };
+
+  if (playerScreenX < deadZone.left) camera.x = gameState.player.x - deadZone.left;
+  else if (playerScreenX > deadZone.right) camera.x = gameState.player.x - deadZone.right;
+  if (playerScreenY < deadZone.top) camera.y = gameState.player.y - deadZone.top;
+  else if (playerScreenY > deadZone.bottom) camera.y = gameState.player.y - deadZone.bottom;
+  clampCameraToWorld();
+  keepPlayerClearOfRescueCard();
+}
+
+function clampCameraToWorld() {
+  camera.x = clamp(camera.x, 0, Math.max(0, WORLD_WIDTH - viewport.width));
+  camera.y = clamp(camera.y, 0, Math.max(0, WORLD_HEIGHT - viewport.height));
+}
+
+// If the hero would be under the floating rescue card, slide the view so they sit just
+// left of it (or, at the map's right edge, just below it).
+function keepPlayerClearOfRescueCard() {
+  if (!rescueCardRect) return;
+  const left = rescueCardRect.left - RESCUE_CARD_CLEARANCE;
+  const bottom = rescueCardRect.bottom + RESCUE_CARD_CLEARANCE;
+  if (gameState.player.x - camera.x <= left || gameState.player.y - camera.y >= bottom) return;
+
+  camera.x = gameState.player.x - left;
+  clampCameraToWorld();
+  if (gameState.player.x - camera.x > left) {
+    camera.y = gameState.player.y - bottom;
+    clampCameraToWorld();
+  }
+}
+
+// Markers that would land under the floating rescue card drop to just below it.
+function moveOutFromUnderRescueCard(x, y) {
+  if (!rescueCardRect) return { x, y };
+  const underCard = x > rescueCardRect.left - TRACKER_EDGE_PADDING && y < rescueCardRect.bottom + TRACKER_EDGE_PADDING;
+  if (!underCard) return { x, y };
+  return { x, y: Math.min(rescueCardRect.bottom + TRACKER_EDGE_PADDING, viewport.height - TRACKER_EDGE_PADDING) };
+}
+
+// bottomInset keeps arrows above anything covering the bottom of the screen (the weather ticker).
+function drawEdgeTracker(target, label, color, laneOffset = 0, bottomInset = 0) {
+  const screenX = target.x - camera.x;
+  const screenY = target.y - camera.y;
+  const targetIsVisible = screenX >= 18
+    && screenX <= viewport.width - 18
+    && screenY >= 18
+    && screenY <= viewport.height - 18 - bottomInset;
+  if (targetIsVisible) return;
+
+  const centerX = viewport.width / 2;
+  const centerY = viewport.height / 2;
+  const deltaX = screenX - centerX;
+  const deltaY = screenY - centerY;
+  const angle = Math.atan2(deltaY, deltaX);
+  const horizontalScale = (centerX - TRACKER_EDGE_PADDING) / Math.max(Math.abs(deltaX), 0.001);
+  const verticalScale = (centerY - TRACKER_EDGE_PADDING) / Math.max(Math.abs(deltaY), 0.001);
+  const edgeScale = Math.min(horizontalScale, verticalScale);
+  const arrowX = clamp(
+    centerX + deltaX * edgeScale - Math.sin(angle) * laneOffset,
+    TRACKER_EDGE_PADDING,
+    viewport.width - TRACKER_EDGE_PADDING,
+  );
+  const arrowY = clamp(
+    centerY + deltaY * edgeScale + Math.cos(angle) * laneOffset,
+    TRACKER_EDGE_PADDING,
+    viewport.height - TRACKER_EDGE_PADDING - bottomInset,
+  );
+  const { x: clearArrowX, y: clearArrowY } = moveOutFromUnderRescueCard(arrowX, arrowY);
+  const badgeX = clearArrowX - Math.cos(angle) * 25;
+  const badgeY = clearArrowY - Math.sin(angle) * 25;
+
+  context.save();
+  context.translate(clearArrowX, clearArrowY);
+  context.rotate(angle);
+  context.beginPath();
+  context.moveTo(14, 0);
+  context.lineTo(-8, -10);
+  context.lineTo(-8, 10);
+  context.closePath();
+  context.fillStyle = color;
+  context.fill();
+  context.strokeStyle = '#fffaf0';
+  context.lineWidth = 3;
+  context.stroke();
+  context.restore();
+
+  context.beginPath();
+  context.arc(badgeX, badgeY, 13, 0, Math.PI * 2);
+  context.fillStyle = color;
+  context.fill();
+  context.strokeStyle = '#fffaf0';
+  context.lineWidth = 3;
+  context.stroke();
+  context.fillStyle = '#ffffff';
+  context.font = '900 12px system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(label, badgeX, badgeY + 0.5);
+  context.textAlign = 'start';
+  context.textBaseline = 'alphabetic';
+}
+
+function drawTrackers() {
+  // The ticker is sized in CSS pixels; convert to canvas pixels.
+  const tickerInset = weatherTicker.getVisibleHeight() * viewport.worldPerCssPixel;
+  // Waffle House moves between games, so point the way once Maya is following.
+  if (gameState.maya.following) {
+    drawEdgeTracker({ x: waffleHouse.centerX, y: waffleHouse.centerY }, 'W', '#d8920b', 0, tickerInset);
+  }
+  if (!SHOW_DEBUG_TRACKERS) return;
+  drawEdgeTracker(gameState.maya, 'M', '#e94f91', 0, tickerInset);
+  if (tRexesDisabled || !SHOW_T_REX_TRACKERS) return;
+  gameState.tRexes.forEach((tRex, index) => {
+    const laneOffset = (index - (gameState.tRexes.length - 1) / 2) * 22;
+    drawEdgeTracker(tRex, `R${tRex.id}`, '#b6382e', laneOffset, tickerInset);
+  });
+}
+
+function drawGame() {
+  // Everything below draws in viewport pixels; this maps them onto the canvas's real pixels.
+  const renderScale = canvas.width / viewport.width;
+  context.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+  context.clearRect(0, 0, viewport.width, viewport.height);
+  context.save();
+  context.translate(-Math.round(camera.x), -Math.round(camera.y));
+  drawMap();
+  drawWaffleHouse();
+  // Trains pass under waffles and characters so they never hide gameplay.
+  drawMartaTrains(context, marta, { x: camera.x, y: camera.y, width: viewport.width, height: viewport.height });
+  gameState.pickups.forEach(drawPickup);
+  drawPickupPopups();
+  drawFloodMarkers();
+  if (!tRexesDisabled) gameState.tRexes.forEach(drawTRex);
+  drawWadingRipples(gameState.maya);
+  drawMaya();
+  drawWadingRipples(gameState.player);
+  drawPlayer();
+  context.restore();
+  drawStormLighting();
+  drawRain(context, rain, getRainIntensity(gameState.storm.progress, WEATHER));
+  drawTrackers();
+}
+
+function gameLoop(timestamp) {
+  // A frame's timestamp can be slightly earlier than the performance.now() recorded
+  // at load or on Start, so never let time run backwards: a negative step animated
+  // sprites into frame -1 and crashed drawing (the "Trevor missing on reload" bug).
+  const deltaTime = clamp((timestamp - previousFrameTime) / 1000, 0, 0.032);
+  previousFrameTime = timestamp;
+  if (hasStarted && !isPaused) {
+    updatePlayer(deltaTime);
+    updateMaya(deltaTime);
+    if (!tRexesDisabled) updateTRexPack(deltaTime);
+    updatePickups();
+    updateMarta(marta, deltaTime);
+    updateStorm(deltaTime);
+    updateFloodZones(deltaTime);
+    if (gameState.status !== 'won' && gameState.status !== 'game-over') {
+      updateTickerRoundup(deltaTime);
+      weatherTicker.update(deltaTime);
+    }
+    updateWinCondition();
+    updateCamera();
+    updateRain(
+      rain,
+      deltaTime,
+      getRainIntensity(gameState.storm.progress, WEATHER),
+      camera.x - previousCamera.x,
+      camera.y - previousCamera.y,
+    );
+  }
+  previousCamera.x = camera.x;
+  previousCamera.y = camera.y;
+  drawGame();
+  requestAnimationFrame(gameLoop);
+}
+
+function handleKeyDown(event) {
+  if (!ARROW_KEYS.has(event.key)) return;
+  event.preventDefault();
+  if (!hasStarted || isPaused) return;
+  pressedKeys.add(event.key);
+}
+
+function handleKeyUp(event) {
+  if (!ARROW_KEYS.has(event.key)) return;
+  event.preventDefault();
+  pressedKeys.delete(event.key);
+}
+
+function restartGame() {
+  hasStarted = false;
+  isPaused = false;
+  shouldResetOnStart = true;
+  pressedKeys.clear();
+  winOverlay.hidden = true;
+  gameOverOverlay.hidden = true;
+  pauseOverlay.hidden = true;
+  startOverlay.hidden = false;
+  pauseButton.disabled = true;
+  pauseButton.textContent = 'Pause game';
+  statusText.textContent = 'Ready — press Start Game to begin a new rescue.';
+  rescueStateText.textContent = 'Ready for a new rescue';
+  rescueCard.classList.remove('is-rescued', 'is-danger');
+  drawGame();
+}
+
+function loadSavedCharacterId() {
+  try {
+    return window.localStorage.getItem(CHARACTER_STORAGE_KEY);
+  } catch {
+    return null; // storage can be blocked (private windows); fall back to the default
+  }
+}
+
+// Picking a hero on the start screen swaps the sprite and the name used in messages.
+function selectCharacter(id) {
+  selectedCharacterId = findCharacter(id).id;
+  try {
+    window.localStorage.setItem(CHARACTER_STORAGE_KEY, selectedCharacterId);
+  } catch {
+    // Not remembered this time; the choice still applies to this session.
+  }
+  gameState.player.name = findCharacter(selectedCharacterId).name;
+  startScene.setHero(heroFrames[selectedCharacterId]);
+}
+
+function startGame() {
+  hasStarted = true;
+  if (shouldResetOnStart) {
+    shouldResetOnStart = false;
+    resetGameState();
+  }
+  gameState.player.name = findCharacter(selectedCharacterId).name;
+  updateRescuePanel();
+  isPaused = false;
+  pressedKeys.clear();
+  previousFrameTime = performance.now();
+  startOverlay.hidden = true;
+  pauseButton.disabled = false;
+  statusText.textContent = `Find Maya at ${gameState.maya.address}`;
+  canvas.focus();
+}
+
+// Debug only: jumps the storm clock ahead 10% to preview rain, floods and the surge.
+// Phase changes, flood triggers and the surge all follow on the next frame.
+function advanceStormForDebug() {
+  if (!hasStarted || gameState.status === 'won' || gameState.status === 'game-over') return;
+  gameState.storm.progress = Math.min(1, gameState.storm.progress + 0.1);
+  updateStormPanel();
+  canvas.focus();
+}
+
+// Debug only: freezes and hides the T-Rex pack so the map can be explored safely.
+function toggleTRexesForDebug() {
+  tRexesDisabled = !tRexesDisabled;
+  debugTRexButton.setAttribute('aria-pressed', String(tRexesDisabled));
+  debugTRexButton.textContent = tRexesDisabled ? '🦖 T-Rexes: off' : '🦖 T-Rexes: on';
+  canvas.focus();
+}
+
+function togglePause() {
+  if (!hasStarted || gameState.status === 'won' || gameState.status === 'game-over') return;
+
+  isPaused = !isPaused;
+  pressedKeys.clear();
+  pauseOverlay.hidden = !isPaused;
+  pauseButton.textContent = isPaused ? 'Resume game' : 'Pause game';
+  statusText.textContent = isPaused
+    ? 'Game paused.'
+    : gameState.maya.following
+      ? `Maya is following ${gameState.player.name} — reach Waffle House!`
+      : `Find Maya at ${gameState.maya.address}`;
+}
+
+canvas.tabIndex = -1;
+startButton.addEventListener('click', startGame);
+restartButton.addEventListener('click', restartGame);
+debugTRexButton.hidden = !SHOW_DEBUG_CONTROLS;
+debugTRexButton.addEventListener('click', toggleTRexesForDebug);
+debugStormButton.hidden = !SHOW_DEBUG_CONTROLS;
+debugStormButton.addEventListener('click', advanceStormForDebug);
+pauseButton.addEventListener('click', togglePause);
+window.addEventListener('keydown', handleKeyDown);
+window.addEventListener('keyup', handleKeyUp);
+window.addEventListener('blur', () => pressedKeys.clear());
+
+// Fits the view to the game frame: works out how much map it shows (see viewport) and
+// gives the canvas enough real pixels to stay sharp on high-density screens.
+function resizeViewport() {
+  const cssWidth = canvas.clientWidth;
+  const cssHeight = canvas.clientHeight;
+  if (!cssWidth || !cssHeight) return;
+
+  const zoomedOut = Math.max(1, MIN_VIEW_WIDTH / cssWidth, MIN_VIEW_HEIGHT / cssHeight);
+  viewport.worldPerCssPixel = Math.min(zoomedOut, MAX_VIEW_WIDTH / cssWidth, MAX_VIEW_HEIGHT / cssHeight);
+  viewport.width = Math.round(cssWidth * viewport.worldPerCssPixel);
+  viewport.height = Math.round(cssHeight * viewport.worldPerCssPixel);
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight)));
+  canvas.width = Math.round(cssWidth * pixelRatio);
+  canvas.height = Math.round(cssHeight * pixelRatio);
+  rain.width = viewport.width;
+  rain.height = viewport.height;
+
+  measureRescueCard();
+  if (!gameState) return;
+  clampCameraToWorld();
+  drawGame();
+}
+
+function measureRescueCard() {
+  const frameBox = canvas.getBoundingClientRect();
+  const cardBox = rescueCard.getBoundingClientRect();
+  if (!frameBox.width || !cardBox.width) {
+    rescueCardRect = null;
+    return;
+  }
+  rescueCardRect = {
+    left: (cardBox.left - frameBox.left) * viewport.worldPerCssPixel,
+    bottom: (cardBox.bottom - frameBox.top) * viewport.worldPerCssPixel,
+  };
+}
+
+function setRescueCardCollapsed(collapsed) {
+  rescueCard.classList.toggle('is-collapsed', collapsed);
+  rescueCardToggle.setAttribute('aria-expanded', String(!collapsed));
+  rescueCardToggle.textContent = collapsed ? 'Show' : 'Hide';
+  measureRescueCard();
+}
+
+rescueCardToggle.addEventListener('click', () => {
+  setRescueCardCollapsed(!rescueCard.classList.contains('is-collapsed'));
+  canvas.focus();
+});
+// Phones start with the card collapsed so it covers less of the map.
+setRescueCardCollapsed(window.matchMedia('(max-width: 700px)').matches);
+resizeViewport();
+new ResizeObserver(resizeViewport).observe(canvas);
+new ResizeObserver(measureRescueCard).observe(rescueCard);
+
+// Side-panel icons use the same pixel sprites as the map; CSS scales them up.
+function paintPanelSprite(panelCanvas, frame) {
+  panelCanvas.width = frame.width;
+  panelCanvas.height = frame.height;
+  panelCanvas.getContext('2d').drawImage(frame, 0, 0);
+}
+paintPanelSprite(document.querySelector('#maya-token'), mayaFrames.walk[0]);
+paintPanelSprite(document.querySelector('#t-rex-icon'), tRexFrames[0]);
+
+const startScene = startChaseScene(document.querySelector('#start-scene'), startOverlay, heroFrames[selectedCharacterId]);
+createCharacterPicker(characterOptions, {
+  characters: CHARACTERS,
+  framesById: heroFrames,
+  selectedId: selectedCharacterId,
+  onChange: selectCharacter,
+});
+resetGameState();
+drawGame();
+requestAnimationFrame(gameLoop);
+
+export {
+  camera, canPlayerOccupy, createFloodZones, gameState, movePlayer, planSpawns, restartGame, waffleHouse,
+};
