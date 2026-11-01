@@ -8,7 +8,10 @@ import { createTRexFrames } from './tRexSprite.js';
 import { createWaffleHouseSprite } from './waffleHouseSprite.js';
 import { createKrogStreetMarketSprite } from './krogStreetMarketSprite.js';
 import { createInmanParkSignSprite } from './inmanParkSignSprite.js';
+import { createInmanMotorWorksSprite } from './inmanMotorWorksSprite.js';
 import { createMartaStationSprite } from './martaStationSprite.js';
+import { createFultonCottonMillSprite } from './fultonCottonMillSprite.js';
+import { createKrogTunnelWallSprite } from './krogStreetTunnelSprites.js';
 import { ACTIVE_DIFFICULTY, WEATHER_SETTINGS } from './weatherSettings.js';
 import { FLOOD_ZONES as SOURCE_FLOOD_ZONES } from './floodZones.js';
 import { WAFFLE_HOUSE_SITES } from './waffleHouseSites.js';
@@ -17,10 +20,15 @@ import {
   createRain, drawRain, drawStormTint, getRainIntensity, getTintAlpha, updateRain,
 } from './weatherEffects.js';
 import { createWeatherTicker } from './weatherTicker.js';
+import { createMusic } from './music.js';
+import { playSound, setSoundsMuted, unlockSounds } from './sounds.js';
 import { MARTA_LINE } from './martaLine.js';
 import { createMarta, drawMartaTracks, drawMartaTrains, updateMarta } from './marta.js';
 import { startChaseScene } from './startScene.js';
+import { createTouchStick } from './touchStick.js';
 import { createSodaTabSprite } from './sodaTabSprite.js';
+import { createNeighborhoodCanopy, drawNeighborhoodCanopy } from './neighborhoodCanopy.js';
+import { BUILDINGS } from './buildingData.js';
 
 // Must run before anything below reads the road geometry. Road tweaks use the
 // original coordinates, so they're applied before the map is scaled up.
@@ -33,24 +41,33 @@ const context = canvas.getContext('2d');
 const startButton = document.querySelector('#start-button');
 const restartButton = document.querySelector('#restart-button');
 const pauseButton = document.querySelector('#pause-button');
+const musicButton = document.querySelector('#music-button');
+const music = createMusic();
 const debugTRexButton = document.querySelector('#debug-t-rex-button');
 const debugStormButton = document.querySelector('#debug-storm-button');
+const weatherTickerElement = document.querySelector('#weather-ticker');
 const weatherTicker = createWeatherTicker({
-  root: document.querySelector('#weather-ticker'),
+  root: weatherTickerElement,
   tag: document.querySelector('#weather-ticker-tag'),
   window: document.querySelector('#weather-ticker-window'),
   text: document.querySelector('#weather-ticker-text'),
   announcer: document.querySelector('#weather-announcer'),
 });
 const statusText = document.querySelector('#game-status');
-const mayaAddressText = document.querySelector('#maya-address');
-const waffleHouseAddressText = document.querySelector('#waffle-house-address');
 const rescueStateText = document.querySelector('#rescue-state');
-const rescueCard = document.querySelector('#rescue-card');
-const rescueCardToggle = document.querySelector('#rescue-card-toggle');
+const rescueTag = document.querySelector('#rescue-tag');
+const hudStrip = document.querySelector('#hud-strip');
+const hudControls = document.querySelector('#hud-controls');
+const restartOverlay = document.querySelector('#restart-overlay');
+const restartConfirmButton = document.querySelector('#restart-confirm-button');
+const restartCancelButton = document.querySelector('#restart-cancel-button');
 const waffleCountText = document.querySelector('#waffle-count');
 const tabCountText = document.querySelector('#tab-count');
 const scoreText = document.querySelector('#score');
+const levelText = document.querySelector('#level-number');
+const gameOverScoreText = document.querySelector('#game-over-score');
+const winEyebrowText = document.querySelector('#win-eyebrow');
+const winNextLevelText = document.querySelector('#win-next-level');
 const winScoreText = document.querySelector('#win-score');
 const stormPhaseText = document.querySelector('#storm-phase');
 const stormBar = document.querySelector('#storm-bar');
@@ -58,7 +75,6 @@ const stormFill = document.querySelector('#storm-fill');
 const gameOverEyebrow = document.querySelector('#game-over-eyebrow');
 const gameOverTitle = document.querySelector('#game-over-title');
 const winOverlay = document.querySelector('#win-overlay');
-const winHeroNameText = document.querySelector('#win-hero-name');
 const characterOptions = document.querySelector('#character-options');
 const gameOverOverlay = document.querySelector('#game-over-overlay');
 const pauseOverlay = document.querySelector('#pause-overlay');
@@ -67,7 +83,8 @@ const startOverlay = document.querySelector('#start-overlay');
 // The visible slice of the map, in world pixels. It follows the size of the game frame
 // (see resizeViewport): one world pixel per CSS pixel, zoomed in on very large screens so
 // you never see more than MAX_VIEW_* of the map, and zoomed out on small ones so you
-// always see at least MIN_VIEW_*.
+// always see at least MIN_VIEW_*. The MIN sizes apply to the frame's long and short
+// sides, so a phone held upright isn't zoomed out to fit 640 pixels across its narrow width.
 const viewport = { width: 960, height: 540, worldPerCssPixel: 1 };
 const MAX_VIEW_WIDTH = 1600;
 const MAX_VIEW_HEIGHT = 1000;
@@ -101,13 +118,11 @@ const MAYA_STRIDE_DURATION = 0.14;
 const MAYA_REST_POSE_FRAME_DURATIONS = { sniff: 0.3, sit: 0.4 };
 const MAYA_SNIFF_CHANCE = 0.6;
 const T_REX_ROAD_RADIUS = 11;
-const T_REX_SPEED = PLAYER_SPEED * 0.8;
 const T_REX_CATCH_DISTANCE = 31;
 const T_REX_MIN_SPAWN_DISTANCE = 950 * MAP_SCALE;
 const T_REX_MIN_PACK_DISTANCE = 420 * MAP_SCALE;
 const T_REX_MIN_MAYA_DISTANCE = 500 * MAP_SCALE;
 const T_REX_MIN_WAFFLE_HOUSE_DISTANCE = 400 * MAP_SCALE;
-const T_REX_COUNT = 6;
 const T_REX_SPRITE_SCALE = 2;
 const T_REX_STRIDE_DURATION = 0.18;
 // Collectibles scattered along the streets. Counts scale with the map because its
@@ -125,6 +140,32 @@ const WAFFLE_SIZE = 18;
 const SODA_TAB_SCALE = 2;
 const REACHABILITY_CELL_SIZE = 8;
 const WEATHER = WEATHER_SETTINGS[ACTIVE_DIFFICULTY];
+// Levels: reaching Waffle House starts the next level on the same map; getting caught
+// ends the run. Level 3 matches the original one-level game. After that, each level adds
+// a T-Rex, a little T-Rex speed and a shorter storm, up to the caps.
+const EARLY_LEVELS = [
+  { tRexCount: 4, tRexSpeedRatio: 0.7, stormLengthRatio: 1.2 },
+  { tRexCount: 5, tRexSpeedRatio: 0.75, stormLengthRatio: 1.1 },
+  { tRexCount: 6, tRexSpeedRatio: 0.8, stormLengthRatio: 1 },
+];
+const MAX_T_REX_COUNT = 10;
+const MAX_T_REX_SPEED_RATIO = 0.92; // always slower than the player
+const MIN_STORM_LENGTH_RATIO = 0.65;
+const LEVEL_ADVANCE_DELAY = 2.5; // seconds the "level complete" screen shows
+const BEST_SCORE_STORAGE_KEY = 'waffle-rescue-best-score';
+
+// tRexSpeedRatio is a share of the player's speed; stormLengthRatio scales the
+// weather's stormDurationSeconds.
+function getLevelSettings(level) {
+  if (level <= EARLY_LEVELS.length) return EARLY_LEVELS[level - 1];
+  const last = EARLY_LEVELS[EARLY_LEVELS.length - 1];
+  const extra = level - EARLY_LEVELS.length;
+  return {
+    tRexCount: Math.min(last.tRexCount + extra, MAX_T_REX_COUNT),
+    tRexSpeedRatio: Math.min(last.tRexSpeedRatio + 0.03 * extra, MAX_T_REX_SPEED_RATIO),
+    stormLengthRatio: Math.max(last.stormLengthRatio - 0.07 * extra, MIN_STORM_LENGTH_RATIO),
+  };
+}
 const STORM_PHASES = [
   { id: 'clear', label: 'Clear skies', startsAt: 0 },
   { id: 'cloudy', label: 'Clouds rolling in', startsAt: WEATHER.cloudsStartAt },
@@ -192,9 +233,29 @@ let selectedCharacterId = findCharacter(loadSavedCharacterId()).id;
 const tRexFrames = createTRexFrames();
 const waffleHouseSprite = createWaffleHouseSprite();
 const LANDMARK_SPRITE_SCALE = 2;
+// Rotated sprites are drawn with smoothing so their edges don't look jagged. Enlarging them
+// pixel-sharp first keeps the pixel art itself crisp under that smoothing.
+const ROTATED_SPRITE_UPSCALE = 4;
+
+function upscaleSprite(sprite, factor) {
+  const large = document.createElement('canvas');
+  large.width = sprite.width * factor;
+  large.height = sprite.height * factor;
+  const largeContext = large.getContext('2d');
+  largeContext.imageSmoothingEnabled = false;
+  largeContext.drawImage(sprite, 0, 0, large.width, large.height);
+  return large;
+}
+
+// Krog Street Tunnel: painted walls line both sides of the road. They're drawn turned to
+// follow the road, so the strip is enlarged first like other rotated sprites.
+const KROG_TUNNEL_SPRITE_SCALE = 2;
+const krogTunnelWallSprite = upscaleSprite(createKrogTunnelWallSprite(), ROTATED_SPRITE_UPSCALE);
+
 // Buildings and signs drawn on the map. x/y is the sprite's centre in original map
 // units (scaled below); the streets around each spot are bent to make room (see
-// mapAdjustments.js).
+// mapAdjustments.js). An optional angle (radians) turns a sprite to line up with a street,
+// an optional scale overrides LANDMARK_SPRITE_SCALE, and an optional label is drawn underneath.
 const landmarkProps = [
   // Between Krog Street, Lake Avenue and Waddell Street.
   { landmarkName: 'Krog Street Market', sprite: createKrogStreetMarketSprite(), x: 1349, y: 740 },
@@ -202,9 +263,29 @@ const landmarkProps = [
   { landmarkName: null, sprite: createInmanParkSignSprite(), x: 1915, y: 810 },
   // Just north of DeKalb Avenue, beside the elevated MARTA tracks.
   { landmarkName: 'Inman Park/Reynoldstown', sprite: createMartaStationSprite(), x: 2883, y: 574 },
+  // Trevor's home, filling the block between Spruce Street, Inman Walk and DeKalb Avenue,
+  // turned to line up with DeKalb.
+  {
+    landmarkName: null,
+    sprite: createInmanMotorWorksSprite(),
+    x: 1854,
+    y: 1174,
+    angle: Math.atan2(1211.3 - 1323.6, 2028.9 - 1488.9), // DeKalb between Waddell and Delta Place
+  },
+  // Cabbagetown, on the mill's real block between Boulevard, Carroll Street and Decatur Street.
+  {
+    landmarkName: null,
+    label: 'Fulton Cotton Mill Lofts',
+    sprite: createFultonCottonMillSprite(),
+    // The real mill is huge, and so is its block.
+    scale: 3,
+    x: 470,
+    y: 1890,
+  },
 ].map((prop) => {
   const [x, y] = scalePoint([prop.x, prop.y]);
-  return { ...prop, x, y };
+  const smoothSprite = prop.angle ? upscaleSprite(prop.sprite, ROTATED_SPRITE_UPSCALE) : null;
+  return { ...prop, x, y, angle: prop.angle ?? 0, scale: prop.scale ?? LANDMARK_SPRITE_SCALE, smoothSprite };
 });
 const camera = { x: 0, y: 0 };
 const previousCamera = { x: 0, y: 0 };
@@ -213,10 +294,15 @@ const rain = createRain(viewport.width, viewport.height);
 const marta = createMarta({ ...MARTA_LINE, points: scalePoints(MARTA_LINE.points) });
 // The hero can roam this middle part of the screen before the camera follows.
 const CAMERA_DEAD_ZONE = { left: 0.3, right: 0.7, top: 0.28, bottom: 0.72 };
-// Keeps the hero this far (world pixels) from the floating rescue card.
-const RESCUE_CARD_CLEARANCE = 24;
-// The rescue card's area in viewport pixels, measured on resize and when it collapses.
-let rescueCardRect = null;
+// Laptop screens are short, so a fraction of the height leaves little warning above or
+// below. The camera always keeps at least this much map (world pixels) visible ahead of
+// the hero, up to just under half the visible height.
+const CAMERA_MIN_LOOKAHEAD = 280;
+// Keeps the hero this far (world pixels) from the HUD that floats over the map's corners.
+const HUD_CLEARANCE = 24;
+// The areas the corner HUD covers, in viewport pixels: { left, right, top, bottom } each.
+// Measured on resize and whenever the HUD changes size.
+let hudRects = [];
 const pressedKeys = new Set();
 let previousFrameTime = performance.now();
 let gameState;
@@ -225,10 +311,6 @@ let isPaused = false;
 let hasStarted = false;
 let shouldResetOnStart = false;
 let tRexesDisabled = false; // debug toggle; survives restarts
-
-function findLandmark(name) {
-  return mapData.landmarks.find((landmark) => landmark.name === name);
-}
 
 function closestPointOnSegment(x, y, start, end) {
   const segmentX = end[0] - start[0];
@@ -273,8 +355,10 @@ function findNearestRoadPoint(x, y) {
   return nearest;
 }
 
-const krogStreetMarket = findLandmark('Krog Street Market') ?? { x: 500 * MAP_SCALE, y: 750 * MAP_SCALE };
-const startingRoadPoint = findNearestRoadPoint(krogStreetMarket.x, krogStreetMarket.y);
+// Trevor starts at home: on Spruce Street outside Inman Motor Works, between Inman Walk
+// and DeKalb Avenue (original map units).
+const [homeX, homeY] = scalePoint([1692, 1200]);
+const startingRoadPoint = findNearestRoadPoint(homeX, homeY);
 const WAFFLE_HOUSE_WIDTH = 148;
 const WAFFLE_HOUSE_HEIGHT = 78;
 // Storm tint strength at which Waffle House's glow reaches full brightness (the tint's max).
@@ -440,6 +524,40 @@ const waffleHouseSites = WAFFLE_HOUSE_SITES.map(createWaffleHouse).filter((house
 });
 if (waffleHouseSites.length === 0) throw new Error('No Waffle House site fits the map.');
 
+// Real rooftops under tree canopy fill the blocks. They keep clear of the landmark
+// sprites, every Waffle House lot and its driveway, and the MARTA line.
+const neighborhoodCanopy = createNeighborhoodCanopy({
+  buildings: BUILDINGS,
+  roads: mapData.roads,
+  parks: mapData.parks,
+  world: mapData.world,
+  avoidRects: [
+    ...landmarkProps.map(({ sprite, x, y, angle, scale }) => {
+      const width = sprite.width * scale;
+      const height = sprite.height * scale;
+      // A turned sprite can reach as far as its half-diagonal in any direction.
+      const halfWidth = angle ? Math.hypot(width, height) / 2 : width / 2;
+      const halfHeight = angle ? halfWidth : height / 2;
+      return { x: x - halfWidth, y: y - halfHeight, width: halfWidth * 2, height: halfHeight * 2 };
+    }),
+    ...waffleHouseSites.map((house) => {
+      const left = Math.min(house.x, house.roadX);
+      const top = Math.min(house.y, house.roadY);
+      return {
+        x: left,
+        y: top,
+        width: Math.max(house.x + house.width, house.roadX) - left,
+        height: Math.max(house.y + house.height, house.roadY) - top,
+      };
+    }),
+  ],
+  avoidPaths: [{ points: marta.centreline, width: 70 }],
+});
+// The cached ground layer is painted at half size and enlarged without smoothing, so its
+// pixels are the same 2× blocks as the sprites.
+const GROUND_LAYER_PIXEL = 2;
+const groundLayer = createGroundLayer();
+
 // Streets Maya (and the T-Rexes) can spawn on.
 const spawnRoads = mapData.roads.filter(
   (road) => MAYA_SPAWN_STREETS.some((prefix) => road.name.startsWith(prefix))
@@ -530,15 +648,18 @@ function walkingDistanceAt(distances, x, y) {
   return cell < 0 ? Infinity : distances[cell];
 }
 
-// Picks this game's Waffle House and Maya's spot. Every chosen flood zone is treated
-// as deep, so the hero, Maya and Waffle House stay connected however the storm plays
-// out; on top of that, all three are spaced apart by walking distance. When nothing
+// Picks this game's Waffle House and Maya's spot. When floods can turn deep, every
+// chosen flood zone is treated as deep, so the hero, Maya and Waffle House stay
+// connected however the storm plays out; on top of that, all three are spaced apart by
+// walking distance. When nothing
 // clears every spacing, the most spread-out option wins. Only if no site survives the
 // floods at all (it never should) are the floods ignored.
 function planSpawns(floodZones) {
   const blocked = new Uint8Array(roadReachabilityGrid.reachable.length);
-  for (const zone of floodZones) {
-    for (const cell of getDeepWaterCells(zone)) blocked[cell] = 1;
+  if (WEATHER.floodsTurnDeep) {
+    for (const zone of floodZones) {
+      for (const cell of getDeepWaterCells(zone)) blocked[cell] = 1;
+    }
   }
   const plan = findSpawnPlan(blocked) ?? findSpawnPlan(null);
   if (!plan) throw new Error('Could not place Waffle House and Maya.');
@@ -635,9 +756,9 @@ function createTRex(maya, existingTRexes, index) {
   };
 }
 
-function createTRexPack(maya) {
+function createTRexPack(maya, count) {
   const tRexes = [];
-  for (let index = 0; index < T_REX_COUNT; index += 1) {
+  for (let index = 0; index < count; index += 1) {
     tRexes.push(createTRex(maya, tRexes, index));
   }
   return tRexes;
@@ -712,6 +833,7 @@ function updateScorePanel() {
   waffleCountText.textContent = waffle;
   tabCountText.textContent = tab;
   scoreText.textContent = gameState.score;
+  levelText.textContent = gameState.level;
   winScoreText.textContent = `Waffles: ${waffle} · Soda tabs: ${tab} · Score: ${gameState.score}`;
 }
 
@@ -726,18 +848,13 @@ function updateStormPanel() {
   stormBar.setAttribute('aria-valuenow', String(percent));
 }
 
+// The stats strip shows a "Maya with you" tag while she follows the hero, and flashes
+// red when the run ends.
 function updateRescuePanel() {
-  mayaAddressText.textContent = gameState.maya.address;
-  waffleHouseAddressText.textContent = waffleHouse.address;
-  rescueStateText.textContent = gameState.status === 'game-over'
-    ? gameState.gameOverTitle
-    : gameState.status === 'won'
-      ? 'Safe at Waffle House!'
-      : gameState.maya.following
-        ? 'Rescued — head to Waffle House!'
-        : `Waiting for ${gameState.player.name}`;
-  rescueCard.classList.toggle('is-rescued', gameState.maya.following);
-  rescueCard.classList.toggle('is-danger', gameState.status === 'game-over');
+  const showTag = gameState.maya.following && gameState.status !== 'game-over';
+  rescueTag.hidden = !showTag;
+  rescueStateText.textContent = gameState.status === 'won' ? 'Safe at Waffle House!' : 'Maya with you';
+  hudStrip.classList.toggle('is-danger', gameState.status === 'game-over');
 }
 
 // Puts this game's Waffle House on the map: its driveway and building become walkable.
@@ -763,7 +880,10 @@ function placeWaffleHouse(house) {
   reachabilityGrid = { columns, rows, reachable };
 }
 
-function resetGameState() {
+// Starts a level. A new game starts at level 1; the next level keeps the run's score
+// and tallies. Everything else (Maya, Waffle House, T-Rexes, floods, pickups) is re-rolled.
+function resetGameState({ level = 1, score = 0, collected = { waffle: 0, tab: 0 } } = {}) {
+  const levelSettings = getLevelSettings(level);
   const floodZones = createFloodZones();
   const spawnPlan = planSpawns(floodZones);
   placeWaffleHouse(spawnPlan.waffleHouse);
@@ -771,10 +891,14 @@ function resetGameState() {
   gameState = {
     ...initialGameState,
     player: { ...initialGameState.player, name: findCharacter(selectedCharacterId).name },
+    level,
+    levelSettings,
+    score,
     maya,
-    tRexes: createTRexPack(maya),
+    tRexes: createTRexPack(maya, levelSettings.tRexCount),
     pickups: createPickups(),
-    collected: { waffle: 0, tab: 0 },
+    collected: { ...collected },
+    nextLevelTimer: 0,
     pickupPopups: [],
     storm: { progress: 0, phase: 'clear', finalSurge: false },
     floodZones,
@@ -789,9 +913,9 @@ function resetGameState() {
   pauseOverlay.hidden = true;
   startOverlay.hidden = hasStarted;
   pauseButton.disabled = !hasStarted;
-  pauseButton.textContent = 'Pause game';
+  updatePauseButton();
   statusText.textContent = hasStarted
-    ? `Find Maya at ${gameState.maya.address}`
+    ? `Level ${level} — find Maya at ${gameState.maya.address}`
     : 'Ready — press Start Game to begin.';
   updateRescuePanel();
   updateScorePanel();
@@ -809,82 +933,104 @@ function tracePath(targetContext, points, closePath = false) {
   if (closePath) targetContext.closePath();
 }
 
-function drawPolygons(polygons, fillStyle, strokeStyle) {
+function drawPolygons(targetContext, polygons, fillStyle, strokeStyle) {
   for (const polygon of polygons) {
-    tracePath(context, polygon.points, true);
-    context.fillStyle = fillStyle;
-    context.fill();
-    context.strokeStyle = strokeStyle;
-    context.lineWidth = 1.5;
-    context.stroke();
+    tracePath(targetContext, polygon.points, true);
+    targetContext.fillStyle = fillStyle;
+    targetContext.fill();
+    targetContext.strokeStyle = strokeStyle;
+    targetContext.lineWidth = 1.5;
+    targetContext.stroke();
   }
 }
 
-function drawRoads() {
-  context.save();
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
+function drawRoads(targetContext) {
+  targetContext.save();
+  targetContext.lineCap = 'round';
+  targetContext.lineJoin = 'round';
 
   // A separate border pass lets intersections merge into continuous surfaces.
   for (const road of mapData.roads) {
-    tracePath(context, road.points);
-    context.strokeStyle = '#e7e2d7';
-    context.lineWidth = road.width + 18;
-    context.stroke();
+    tracePath(targetContext, road.points);
+    targetContext.strokeStyle = '#e7e2d7';
+    targetContext.lineWidth = road.width + 18;
+    targetContext.stroke();
   }
 
   for (const road of mapData.roads) {
-    tracePath(context, road.points);
-    context.strokeStyle = '#69767c';
-    context.lineWidth = road.width;
-    context.stroke();
+    tracePath(targetContext, road.points);
+    targetContext.strokeStyle = '#69767c';
+    targetContext.lineWidth = road.width;
+    targetContext.stroke();
   }
 
   for (const road of mapData.roads) {
     if (!['primary', 'secondary', 'tertiary'].includes(road.type)) continue;
-    tracePath(context, road.points);
-    context.strokeStyle = '#f7e8a0';
-    context.lineWidth = 2.5;
-    context.setLineDash([18, 15]);
-    context.stroke();
+    tracePath(targetContext, road.points);
+    targetContext.strokeStyle = '#f7e8a0';
+    targetContext.lineWidth = 2.5;
+    targetContext.setLineDash([18, 15]);
+    targetContext.stroke();
   }
 
+  targetContext.restore();
+}
+
+// The ground never changes during a game (lawn, parks, rooftops, trees and streets), so
+// it's painted once into an image instead of every frame (see GROUND_LAYER_PIXEL).
+function createGroundLayer() {
+  const layer = document.createElement('canvas');
+  layer.width = Math.ceil(WORLD_WIDTH / GROUND_LAYER_PIXEL);
+  layer.height = Math.ceil(WORLD_HEIGHT / GROUND_LAYER_PIXEL);
+  const layerContext = layer.getContext('2d');
+  layerContext.scale(1 / GROUND_LAYER_PIXEL, 1 / GROUND_LAYER_PIXEL);
+  layerContext.fillStyle = '#9cc988';
+  layerContext.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+  drawPolygons(layerContext, mapData.parks, '#8fd2a2', '#6cb98b');
+  drawNeighborhoodCanopy(layerContext, neighborhoodCanopy);
+  drawRoads(layerContext);
+  return layer;
+}
+
+// Copies the visible part of the ground layer. The source starts on a whole layer pixel
+// so every block stays crisp while the camera scrolls.
+function drawGroundLayer() {
+  const left = Math.max(0, Math.floor(camera.x / GROUND_LAYER_PIXEL));
+  const top = Math.max(0, Math.floor(camera.y / GROUND_LAYER_PIXEL));
+  const width = Math.min(groundLayer.width - left, Math.ceil(viewport.width / GROUND_LAYER_PIXEL) + 2);
+  const height = Math.min(groundLayer.height - top, Math.ceil(viewport.height / GROUND_LAYER_PIXEL) + 2);
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(
+    groundLayer,
+    left, top, width, height,
+    left * GROUND_LAYER_PIXEL, top * GROUND_LAYER_PIXEL, width * GROUND_LAYER_PIXEL, height * GROUND_LAYER_PIXEL,
+  );
   context.restore();
 }
 
+// The map is seen from above and characters draw over it, so the tunnel has no roof.
+// Painted walls line both sides of the road instead, with lights down the middle.
 function drawKrogStreetTunnel() {
   const tunnelWidth = 44;
+  const pathLength = getPathLength(KROG_TUNNEL_PATH);
 
   context.save();
   context.lineCap = 'butt';
   context.lineJoin = 'round';
-
-  // A brick-lined shadow distinguishes the tunnel without changing its road geometry.
-  tracePath(context, KROG_TUNNEL_PATH);
-  context.strokeStyle = '#5b3345';
-  context.lineWidth = tunnelWidth + 18;
-  context.stroke();
 
   tracePath(context, KROG_TUNNEL_PATH);
   context.strokeStyle = '#2f3f52';
   context.lineWidth = tunnelWidth;
   context.stroke();
 
-  // Bright mural strokes echo the colorful walls inside the real Krog Street Tunnel.
-  const muralColors = ['#ff5c8a', '#28d7c0', '#ffd45c', '#9f7aea'];
-  for (let index = 0; index < muralColors.length; index += 1) {
-    tracePath(context, KROG_TUNNEL_PATH);
-    context.strokeStyle = muralColors[index];
-    context.lineWidth = 3;
-    context.setLineDash([12, 42]);
-    context.lineDashOffset = index * -13;
-    context.stroke();
-  }
-  context.setLineDash([]);
+  context.imageSmoothingEnabled = true;
+  drawKrogTunnelWalls(tunnelWidth);
 
-  // Warm ceiling lights make the passage easy to spot from either approach.
-  for (const distance of [42, 82, 122, 162]) {
-    const light = getPointAlongPath(KROG_TUNNEL_PATH, distance);
+  // Warm ceiling lights spaced evenly along the tunnel.
+  const lightCount = 4;
+  for (let index = 1; index <= lightCount; index += 1) {
+    const light = getPointAlongPath(KROG_TUNNEL_PATH, (pathLength * index) / (lightCount + 1));
     context.beginPath();
     context.arc(light.x, light.y, 3.5, 0, Math.PI * 2);
     context.fillStyle = '#fff1a8';
@@ -894,21 +1040,7 @@ function drawKrogStreetTunnel() {
   }
   context.shadowBlur = 0;
 
-  // Portal bars sit across the road at both tunnel entrances.
-  for (const distance of [4, getPathLength(KROG_TUNNEL_PATH) - 4]) {
-    const portal = getPointAlongPath(KROG_TUNNEL_PATH, distance);
-    context.save();
-    context.translate(portal.x, portal.y);
-    context.rotate(portal.angle + Math.PI / 2);
-    context.fillStyle = '#d88b4a';
-    context.strokeStyle = '#6b3b2a';
-    context.lineWidth = 2;
-    context.fillRect(-tunnelWidth / 2 - 6, -4, tunnelWidth + 12, 8);
-    context.strokeRect(-tunnelWidth / 2 - 6, -4, tunnelWidth + 12, 8);
-    context.restore();
-  }
-
-  const label = getPointAlongPath(KROG_TUNNEL_PATH, 104);
+  const label = getPointAlongPath(KROG_TUNNEL_PATH, pathLength / 2);
   context.save();
   context.translate(label.x, label.y);
   context.rotate(label.angle);
@@ -925,11 +1057,52 @@ function drawKrogStreetTunnel() {
   context.restore();
 }
 
+// Repeats the painted wall strip along both sides of each stretch of the tunnel road,
+// with its shadowed base against the road.
+function drawKrogTunnelWalls(tunnelWidth) {
+  const tileWidth = (krogTunnelWallSprite.width / ROTATED_SPRITE_UPSCALE) * KROG_TUNNEL_SPRITE_SCALE;
+  const tileHeight = (krogTunnelWallSprite.height / ROTATED_SPRITE_UPSCALE) * KROG_TUNNEL_SPRITE_SCALE;
+  const sourcePerWorldPixel = krogTunnelWallSprite.width / tileWidth;
+
+  for (let index = 1; index < KROG_TUNNEL_PATH.length; index += 1) {
+    const [startX, startY] = KROG_TUNNEL_PATH[index - 1];
+    const [endX, endY] = KROG_TUNNEL_PATH[index];
+    const length = Math.hypot(endX - startX, endY - startY);
+
+    context.save();
+    context.translate(startX, startY);
+    context.rotate(Math.atan2(endY - startY, endX - startX));
+    for (const side of [-1, 1]) {
+      context.save();
+      context.scale(1, side);
+      for (let offset = 0; offset < length; offset += tileWidth) {
+        const width = Math.min(tileWidth, length - offset);
+        context.drawImage(
+          krogTunnelWallSprite,
+          0, 0, width * sourcePerWorldPixel, krogTunnelWallSprite.height,
+          offset, -tunnelWidth / 2 - tileHeight, width, tileHeight,
+        );
+      }
+      context.restore();
+    }
+    context.restore();
+  }
+}
+
 function shortenStreetName(name) {
   return name
     .replace(/^Dekalb/, 'DeKalb')
     .replace(' Northeast', ' NE')
     .replace(' Southeast', ' SE');
+}
+
+function distanceToPolyline(point, points) {
+  let nearest = Infinity;
+  for (let index = 1; index < points.length; index += 1) {
+    const closest = closestPointOnSegment(point.x, point.y, points[index - 1], points[index]);
+    nearest = Math.min(nearest, Math.hypot(point.x - closest.x, point.y - closest.y));
+  }
+  return nearest;
 }
 
 function getPathLength(points) {
@@ -997,6 +1170,8 @@ function buildRoadLabels() {
 
     for (const distance of distances) {
       const position = getPointAlongPath(road.points, distance);
+      // The tunnel carries its own name.
+      if (distanceToPolyline(position, KROG_TUNNEL_PATH) < 30) continue;
       const isDuplicate = existingPositions.some(
         (existing) => Math.hypot(existing.x - position.x, existing.y - position.y) < LABEL_DEDUPLICATION_DISTANCE,
       );
@@ -1064,6 +1239,18 @@ function drawLandmarks() {
     context.fillText(landmark.name, landmark.x, landmark.y - 24);
   }
 
+  // Sprites without a painted sign get their name underneath.
+  context.font = '800 16px system-ui, sans-serif';
+  for (const { label, sprite, x, y, scale } of landmarkProps) {
+    if (!label) continue;
+    const labelY = y + (sprite.height * scale) / 2 + 14;
+    context.strokeStyle = 'rgba(248, 245, 236, 0.95)';
+    context.lineWidth = 5;
+    context.strokeText(label, x, labelY);
+    context.fillStyle = '#25493c';
+    context.fillText(label, x, labelY);
+  }
+
   context.restore();
 }
 
@@ -1122,27 +1309,38 @@ function drawLandmarkProps() {
   context.save();
   context.imageSmoothingEnabled = false;
 
-  for (const { sprite, x, y } of landmarkProps) {
-    const width = sprite.width * LANDMARK_SPRITE_SCALE;
-    const height = sprite.height * LANDMARK_SPRITE_SCALE;
-    const left = Math.round(x - width / 2);
-    const top = Math.round(y - height / 2);
+  for (const { sprite, smoothSprite, x, y, angle, scale } of landmarkProps) {
+    const width = sprite.width * scale;
+    const height = sprite.height * scale;
+
+    // Work from the sprite's top-left corner. Unrotated sprites snap to whole pixels.
+    context.save();
+    if (angle) {
+      context.translate(x, y);
+      context.rotate(angle);
+      context.translate(-width / 2, -height / 2);
+    } else {
+      context.translate(Math.round(x - width / 2), Math.round(y - height / 2));
+    }
 
     context.beginPath();
-    context.ellipse(x + 4, top + height - 3, width * 0.52, 9, 0, 0, Math.PI * 2);
+    context.ellipse(width / 2 + 4, height - 3, width * 0.52, 9, 0, 0, Math.PI * 2);
     context.fillStyle = 'rgba(24, 35, 30, 0.2)';
     context.fill();
-    context.drawImage(sprite, left, top, width, height);
+    if (angle) {
+      context.imageSmoothingEnabled = true;
+      context.drawImage(smoothSprite, 0, 0, width, height);
+    } else {
+      context.drawImage(sprite, 0, 0, width, height);
+    }
+    context.restore();
   }
 
   context.restore();
 }
 
 function drawMap() {
-  context.fillStyle = '#a9d596';
-  context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-  drawPolygons(mapData.parks, '#83d5a1', '#62b887');
-  drawRoads();
+  drawGroundLayer();
   drawKrogStreetTunnel();
   drawFloodWater();
   drawLandmarkProps();
@@ -1557,8 +1755,18 @@ function updatePlayer(deltaTime) {
   const player = gameState.player;
   const previousX = player.x;
   const previousY = player.y;
-  const horizontal = Number(pressedKeys.has('ArrowRight')) - Number(pressedKeys.has('ArrowLeft'));
-  const vertical = Number(pressedKeys.has('ArrowDown')) - Number(pressedKeys.has('ArrowUp'));
+  // Arrow keys and the touch stick both steer; together they never exceed one step.
+  const stick = touchStick.getDirection();
+  const horizontal = clamp(
+    Number(pressedKeys.has('ArrowRight')) - Number(pressedKeys.has('ArrowLeft')) + stick.horizontal,
+    -1,
+    1,
+  );
+  const vertical = clamp(
+    Number(pressedKeys.has('ArrowDown')) - Number(pressedKeys.has('ArrowUp')) + stick.vertical,
+    -1,
+    1,
+  );
 
   if (horizontal !== 0 || vertical !== 0) {
     const directionLength = Math.hypot(horizontal, vertical);
@@ -1734,6 +1942,7 @@ function moveMaya(deltaTime) {
     if (distance <= MAYA_PICKUP_DISTANCE) {
       maya.following = true;
       gameState.status = 'maya-rescued';
+      playSound('maya');
       playerTrail = [{ x: gameState.player.x, y: gameState.player.y }];
       statusText.textContent = `You found Maya! She is following ${gameState.player.name}.`;
       updateRescuePanel();
@@ -1763,7 +1972,7 @@ function updateTRex(tRex, deltaTime) {
   const previousX = tRex.x;
   const previousY = tRex.y;
   const desiredAngle = Math.atan2(gameState.player.y - tRex.y, gameState.player.x - tRex.x);
-  const step = T_REX_SPEED * deltaTime;
+  const step = PLAYER_SPEED * gameState.levelSettings.tRexSpeedRatio * deltaTime;
   // T-Rexes won't wade in (from the depth set by tRexBlockedFrom), but can walk out.
   const startsInBlockingWater = getFloodDepthAt(tRex.x, tRex.y, T_REX_ROAD_RADIUS) >= T_REX_BLOCKING_DEPTH;
   let bestMove = null;
@@ -1809,6 +2018,9 @@ function triggerGameOver({ eyebrow, title, status }) {
   statusText.textContent = status;
   gameOverEyebrow.textContent = eyebrow;
   gameOverTitle.textContent = title;
+  const isNewBest = saveBestScore(gameState.score) && gameState.score > 0;
+  gameOverScoreText.textContent = `You reached level ${gameState.level} with ${gameState.score} points. `
+    + (isNewBest ? 'New best score!' : `Best: ${loadBestScore()}`);
   gameOverOverlay.hidden = false;
   updateRescuePanel();
 }
@@ -1873,7 +2085,7 @@ function updateFloodZones(deltaTime) {
       zone.state = 'shallow';
       zone.stateTime = 0;
       announce('flood', `${zone.name} is flooded — wade with care`);
-    } else if (zone.state === 'shallow' && zone.stateTime >= zone.nextSafetyCheckAt) {
+    } else if (WEATHER.floodsTurnDeep && zone.state === 'shallow' && zone.stateTime >= zone.nextSafetyCheckAt) {
       // Hold at shallow (still wadeable) while going deep would cut Trevor off
       // from Maya or Waffle House; try again in a second.
       if (!canFloodSafely(zone)) {
@@ -2119,7 +2331,8 @@ function updateStorm(deltaTime) {
   const previousPercent = Math.round(storm.progress * 100);
   if (storm.progress < 1) {
     const clockSpeed = gameState.maya.following ? WEATHER.rescuedClockMultiplier : 1;
-    storm.progress = Math.min(1, storm.progress + (deltaTime / WEATHER.stormDurationSeconds) * clockSpeed);
+    const stormSeconds = WEATHER.stormDurationSeconds * gameState.levelSettings.stormLengthRatio;
+    storm.progress = Math.min(1, storm.progress + (deltaTime / stormSeconds) * clockSpeed);
   }
 
   const phase = getStormPhase(storm.progress);
@@ -2193,7 +2406,7 @@ function updateTickerRoundup(deltaTime) {
     `Rain: ${getRainLabel(getRainIntensity(storm.progress, WEATHER))}`,
     `Storm: ${Math.round(storm.progress * 100)}%`,
     maya.following
-      ? `Maya: found safe, headed to Waffle House with ${gameState.player.name}`
+      ? `Maya: found safe, headed to Waffle House at ${waffleHouse.address} with ${gameState.player.name}`
       : `Missing dog: Maya, last seen near ${maya.address}`,
     `🧇 Waffle House Index: ${waffleHouseIndex}`,
   ];
@@ -2226,6 +2439,7 @@ function updatePickups() {
     gameState.score += points;
     gameState.collected[pickup.type] += 1;
     gameState.pickupPopups.push({ x: pickup.x, y: pickup.y, points, startTime: now });
+    playSound(pickup.type);
   }
 
   if (remaining.length === gameState.pickups.length) return;
@@ -2241,12 +2455,43 @@ function updateWinCondition() {
   if (!trevorIsInside || !mayaHasArrived) return;
 
   gameState.status = 'won';
+  gameState.nextLevelTimer = LEVEL_ADVANCE_DELAY;
   pressedKeys.clear();
   pauseButton.disabled = true;
-  statusText.textContent = `You win! ${gameState.player.name} and Maya reached Waffle House with ${gameState.score} points.`;
-  winHeroNameText.textContent = gameState.player.name;
+  saveBestScore(gameState.score);
+  statusText.textContent = `Level ${gameState.level} complete! ${gameState.player.name} and Maya reached Waffle House.`;
+  winEyebrowText.textContent = `Level ${gameState.level} complete!`;
+  winNextLevelText.textContent = `Get ready for level ${gameState.level + 1}…`;
   winOverlay.hidden = false;
   updateRescuePanel();
+}
+
+// After the "level complete" screen, the next level starts on its own.
+function updateLevelAdvance(deltaTime) {
+  if (gameState.status !== 'won') return;
+  gameState.nextLevelTimer -= deltaTime;
+  if (gameState.nextLevelTimer > 0) return;
+  pressedKeys.clear();
+  resetGameState({ level: gameState.level + 1, score: gameState.score, collected: gameState.collected });
+}
+
+function loadBestScore() {
+  try {
+    return Number(window.localStorage.getItem(BEST_SCORE_STORAGE_KEY)) || 0;
+  } catch {
+    return 0; // storage can be blocked (private windows)
+  }
+}
+
+// Returns true when this score beats the saved best.
+function saveBestScore(score) {
+  if (score <= loadBestScore()) return false;
+  try {
+    window.localStorage.setItem(BEST_SCORE_STORAGE_KEY, String(score));
+  } catch {
+    // Not remembered this time.
+  }
+  return true;
 }
 
 function clamp(value, minimum, maximum) {
@@ -2257,11 +2502,22 @@ function updateCamera() {
   const playerScreenX = gameState.player.x - camera.x;
   const playerScreenY = gameState.player.y - camera.y;
 
+  // The weather ticker covers the bottom of the map, so leave it out of the visible area.
+  // Its space is always reserved, so the view doesn't jump when it slides in or out.
+  const visibleHeight = viewport.height - weatherTickerElement.offsetHeight * viewport.worldPerCssPixel;
+  const horizontalMargin = Math.min(
+    Math.max(viewport.width * CAMERA_DEAD_ZONE.left, CAMERA_MIN_LOOKAHEAD),
+    viewport.width * 0.45,
+  );
+  const verticalMargin = Math.min(
+    Math.max(visibleHeight * CAMERA_DEAD_ZONE.top, CAMERA_MIN_LOOKAHEAD),
+    visibleHeight * 0.45,
+  );
   const deadZone = {
-    left: viewport.width * CAMERA_DEAD_ZONE.left,
-    right: viewport.width * CAMERA_DEAD_ZONE.right,
-    top: viewport.height * CAMERA_DEAD_ZONE.top,
-    bottom: viewport.height * CAMERA_DEAD_ZONE.bottom,
+    left: horizontalMargin,
+    right: viewport.width - horizontalMargin,
+    top: verticalMargin,
+    bottom: visibleHeight - verticalMargin,
   };
 
   if (playerScreenX < deadZone.left) camera.x = gameState.player.x - deadZone.left;
@@ -2269,7 +2525,7 @@ function updateCamera() {
   if (playerScreenY < deadZone.top) camera.y = gameState.player.y - deadZone.top;
   else if (playerScreenY > deadZone.bottom) camera.y = gameState.player.y - deadZone.bottom;
   clampCameraToWorld();
-  keepPlayerClearOfRescueCard();
+  keepPlayerClearOfHud();
 }
 
 function clampCameraToWorld() {
@@ -2277,28 +2533,37 @@ function clampCameraToWorld() {
   camera.y = clamp(camera.y, 0, Math.max(0, WORLD_HEIGHT - viewport.height));
 }
 
-// If the hero would be under the floating rescue card, slide the view so they sit just
-// left of it (or, at the map's right edge, just below it).
-function keepPlayerClearOfRescueCard() {
-  if (!rescueCardRect) return;
-  const left = rescueCardRect.left - RESCUE_CARD_CLEARANCE;
-  const bottom = rescueCardRect.bottom + RESCUE_CARD_CLEARANCE;
-  if (gameState.player.x - camera.x <= left || gameState.player.y - camera.y >= bottom) return;
+function isUnderHudRect(x, y, rect, padding) {
+  return x > rect.left - padding && x < rect.right + padding && y > rect.top - padding && y < rect.bottom + padding;
+}
 
-  camera.x = gameState.player.x - left;
-  clampCameraToWorld();
-  if (gameState.player.x - camera.x > left) {
-    camera.y = gameState.player.y - bottom;
+// If the hero would be under the corner HUD, slide the view so they sit just below it, or
+// beside it when the view can't scroll that way (at the top of the map).
+function keepPlayerClearOfHud() {
+  for (const rect of hudRects) {
+    const screenX = gameState.player.x - camera.x;
+    const screenY = gameState.player.y - camera.y;
+    if (!isUnderHudRect(screenX, screenY, rect, HUD_CLEARANCE)) continue;
+
+    camera.y = gameState.player.y - (rect.bottom + HUD_CLEARANCE);
+    clampCameraToWorld();
+    if (!isUnderHudRect(gameState.player.x - camera.x, gameState.player.y - camera.y, rect, HUD_CLEARANCE)) continue;
+
+    // Step out sideways, away from the corner the HUD sits in.
+    const sitsOnRight = rect.left + rect.right > viewport.width;
+    camera.x = gameState.player.x - (sitsOnRight ? rect.left - HUD_CLEARANCE : rect.right + HUD_CLEARANCE);
     clampCameraToWorld();
   }
 }
 
-// Markers that would land under the floating rescue card drop to just below it.
-function moveOutFromUnderRescueCard(x, y) {
-  if (!rescueCardRect) return { x, y };
-  const underCard = x > rescueCardRect.left - TRACKER_EDGE_PADDING && y < rescueCardRect.bottom + TRACKER_EDGE_PADDING;
-  if (!underCard) return { x, y };
-  return { x, y: Math.min(rescueCardRect.bottom + TRACKER_EDGE_PADDING, viewport.height - TRACKER_EDGE_PADDING) };
+// Markers that would land under the corner HUD drop to just below it.
+function moveOutFromUnderHud(x, y) {
+  for (const rect of hudRects) {
+    if (isUnderHudRect(x, y, rect, TRACKER_EDGE_PADDING)) {
+      y = Math.min(rect.bottom + TRACKER_EDGE_PADDING, viewport.height - TRACKER_EDGE_PADDING);
+    }
+  }
+  return { x, y };
 }
 
 // bottomInset keeps arrows above anything covering the bottom of the screen (the weather ticker).
@@ -2329,7 +2594,7 @@ function drawEdgeTracker(target, label, color, laneOffset = 0, bottomInset = 0) 
     TRACKER_EDGE_PADDING,
     viewport.height - TRACKER_EDGE_PADDING - bottomInset,
   );
-  const { x: clearArrowX, y: clearArrowY } = moveOutFromUnderRescueCard(arrowX, arrowY);
+  const { x: clearArrowX, y: clearArrowY } = moveOutFromUnderHud(arrowX, arrowY);
   const badgeX = clearArrowX - Math.cos(angle) * 25;
   const badgeY = clearArrowY - Math.sin(angle) * 25;
 
@@ -2424,6 +2689,7 @@ function gameLoop(timestamp) {
       weatherTicker.update(deltaTime);
     }
     updateWinCondition();
+    updateLevelAdvance(deltaTime);
     updateCamera();
     updateRain(
       rain,
@@ -2440,6 +2706,7 @@ function gameLoop(timestamp) {
 }
 
 function handleKeyDown(event) {
+  if (handleShortcutKey(event)) return;
   if (!ARROW_KEYS.has(event.key)) return;
   event.preventDefault();
   if (!hasStarted || isPaused) return;
@@ -2452,6 +2719,48 @@ function handleKeyUp(event) {
   pressedKeys.delete(event.key);
 }
 
+// P or Esc pauses and resumes; Esc also backs out of the restart prompt; M toggles music.
+// Returns true when the key was used.
+function handleShortcutKey(event) {
+  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  // Typing into a button (Space/Enter) or a form control is left to the browser.
+  if (key === 'escape' && !restartOverlay.hidden) {
+    cancelRestart();
+  } else if (key === 'p' || key === 'escape') {
+    if (!restartOverlay.hidden) return false;
+    togglePause();
+  } else if (key === 'm') {
+    toggleMusic();
+  } else {
+    return false;
+  }
+  event.preventDefault();
+  return true;
+}
+
+// Mid-run, Restart asks first (it throws away the run); otherwise it restarts right away.
+let wasPausedBeforeRestartPrompt = false;
+function requestRestart() {
+  const runInProgress = hasStarted && gameState.status !== 'won' && gameState.status !== 'game-over';
+  if (!runInProgress) {
+    restartGame();
+    return;
+  }
+  wasPausedBeforeRestartPrompt = isPaused;
+  setPaused(true);
+  pauseOverlay.hidden = true;
+  restartOverlay.hidden = false;
+  restartCancelButton.focus();
+}
+
+function cancelRestart() {
+  restartOverlay.hidden = true;
+  setPaused(wasPausedBeforeRestartPrompt);
+  pauseOverlay.hidden = !isPaused;
+  if (!isPaused) canvas.focus();
+}
+
 function restartGame() {
   hasStarted = false;
   isPaused = false;
@@ -2461,11 +2770,12 @@ function restartGame() {
   gameOverOverlay.hidden = true;
   pauseOverlay.hidden = true;
   startOverlay.hidden = false;
+  restartOverlay.hidden = true;
   pauseButton.disabled = true;
-  pauseButton.textContent = 'Pause game';
+  updatePauseButton();
   statusText.textContent = 'Ready — press Start Game to begin a new rescue.';
-  rescueStateText.textContent = 'Ready for a new rescue';
-  rescueCard.classList.remove('is-rescued', 'is-danger');
+  rescueTag.hidden = true;
+  hudStrip.classList.remove('is-danger');
   drawGame();
 }
 
@@ -2502,7 +2812,9 @@ function startGame() {
   previousFrameTime = performance.now();
   startOverlay.hidden = true;
   pauseButton.disabled = false;
-  statusText.textContent = `Find Maya at ${gameState.maya.address}`;
+  statusText.textContent = `Level ${gameState.level} — find Maya at ${gameState.maya.address}`;
+  music.play();
+  unlockSounds();
   canvas.focus();
 }
 
@@ -2519,17 +2831,44 @@ function advanceStormForDebug() {
 function toggleTRexesForDebug() {
   tRexesDisabled = !tRexesDisabled;
   debugTRexButton.setAttribute('aria-pressed', String(tRexesDisabled));
-  debugTRexButton.textContent = tRexesDisabled ? '🦖 T-Rexes: off' : '🦖 T-Rexes: on';
+  debugTRexButton.textContent = tRexesDisabled ? '🦖 off' : '🦖 on';
   canvas.focus();
 }
 
-function togglePause() {
-  if (!hasStarted || gameState.status === 'won' || gameState.status === 'game-over') return;
+// The music button mutes the sound effects too. Runs at load and on every toggle.
+function updateMusicButton() {
+  const muted = music.isMuted();
+  setSoundsMuted(muted);
+  musicButton.dataset.state = muted ? 'off' : 'on';
+  musicButton.setAttribute('aria-label', muted ? 'Music off' : 'Music on');
+  musicButton.setAttribute('aria-pressed', String(!muted));
+}
 
-  isPaused = !isPaused;
+function toggleMusic() {
+  music.toggleMuted();
+  updateMusicButton();
+}
+
+// The pause button shows a pause icon while playing and a play icon while paused.
+function updatePauseButton() {
+  pauseButton.dataset.state = isPaused ? 'off' : 'on';
+  pauseButton.setAttribute('aria-label', isPaused ? 'Resume game' : 'Pause game');
+}
+
+function togglePause() {
+  setPaused(!isPaused);
+}
+
+function setPaused(paused) {
+  if (!hasStarted || gameState.status === 'won' || gameState.status === 'game-over') return;
+  if (paused === isPaused) return;
+
+  isPaused = paused;
   pressedKeys.clear();
   pauseOverlay.hidden = !isPaused;
-  pauseButton.textContent = isPaused ? 'Resume game' : 'Pause game';
+  updatePauseButton();
+  if (isPaused) music.pause();
+  else music.play();
   statusText.textContent = isPaused
     ? 'Game paused.'
     : gameState.maya.following
@@ -2539,13 +2878,26 @@ function togglePause() {
 
 canvas.tabIndex = -1;
 startButton.addEventListener('click', startGame);
-restartButton.addEventListener('click', restartGame);
+restartButton.addEventListener('click', requestRestart);
+restartConfirmButton.addEventListener('click', restartGame);
+restartCancelButton.addEventListener('click', cancelRestart);
 debugTRexButton.hidden = !SHOW_DEBUG_CONTROLS;
 debugTRexButton.addEventListener('click', toggleTRexesForDebug);
 debugStormButton.hidden = !SHOW_DEBUG_CONTROLS;
 debugStormButton.addEventListener('click', advanceStormForDebug);
 pauseButton.addEventListener('click', togglePause);
+musicButton.addEventListener('click', () => {
+  toggleMusic();
+  canvas.focus();
+});
+updateMusicButton();
 window.addEventListener('keydown', handleKeyDown);
+const touchStick = createTouchStick({
+  surface: canvas,
+  stick: document.querySelector('#touch-stick'),
+  knob: document.querySelector('#touch-stick-knob'),
+  canUse: () => hasStarted && !isPaused && gameState.status !== 'won' && gameState.status !== 'game-over',
+});
 window.addEventListener('keyup', handleKeyUp);
 window.addEventListener('blur', () => pressedKeys.clear());
 
@@ -2556,7 +2908,9 @@ function resizeViewport() {
   const cssHeight = canvas.clientHeight;
   if (!cssWidth || !cssHeight) return;
 
-  const zoomedOut = Math.max(1, MIN_VIEW_WIDTH / cssWidth, MIN_VIEW_HEIGHT / cssHeight);
+  const longSide = Math.max(cssWidth, cssHeight);
+  const shortSide = Math.min(cssWidth, cssHeight);
+  const zoomedOut = Math.max(1, MIN_VIEW_WIDTH / longSide, MIN_VIEW_HEIGHT / shortSide);
   viewport.worldPerCssPixel = Math.min(zoomedOut, MAX_VIEW_WIDTH / cssWidth, MAX_VIEW_HEIGHT / cssHeight);
   viewport.width = Math.round(cssWidth * viewport.worldPerCssPixel);
   viewport.height = Math.round(cssHeight * viewport.worldPerCssPixel);
@@ -2567,50 +2921,43 @@ function resizeViewport() {
   rain.width = viewport.width;
   rain.height = viewport.height;
 
-  measureRescueCard();
+  measureHud();
   if (!gameState) return;
   clampCameraToWorld();
   drawGame();
 }
 
-function measureRescueCard() {
+// Records the areas the corner HUD covers, in viewport pixels (see hudRects).
+function measureHud() {
   const frameBox = canvas.getBoundingClientRect();
-  const cardBox = rescueCard.getBoundingClientRect();
-  if (!frameBox.width || !cardBox.width) {
-    rescueCardRect = null;
+  if (!frameBox.width) {
+    hudRects = [];
     return;
   }
-  rescueCardRect = {
-    left: (cardBox.left - frameBox.left) * viewport.worldPerCssPixel,
-    bottom: (cardBox.bottom - frameBox.top) * viewport.worldPerCssPixel,
-  };
+  const scale = viewport.worldPerCssPixel;
+  hudRects = [hudStrip, hudControls]
+    .map((element) => element.getBoundingClientRect())
+    .filter((box) => box.width > 0)
+    .map((box) => ({
+      left: (box.left - frameBox.left) * scale,
+      right: (box.right - frameBox.left) * scale,
+      top: (box.top - frameBox.top) * scale,
+      bottom: (box.bottom - frameBox.top) * scale,
+    }));
 }
 
-function setRescueCardCollapsed(collapsed) {
-  rescueCard.classList.toggle('is-collapsed', collapsed);
-  rescueCardToggle.setAttribute('aria-expanded', String(!collapsed));
-  rescueCardToggle.textContent = collapsed ? 'Show' : 'Hide';
-  measureRescueCard();
-}
-
-rescueCardToggle.addEventListener('click', () => {
-  setRescueCardCollapsed(!rescueCard.classList.contains('is-collapsed'));
-  canvas.focus();
-});
-// Phones start with the card collapsed so it covers less of the map.
-setRescueCardCollapsed(window.matchMedia('(max-width: 700px)').matches);
 resizeViewport();
 new ResizeObserver(resizeViewport).observe(canvas);
-new ResizeObserver(measureRescueCard).observe(rescueCard);
+new ResizeObserver(measureHud).observe(hudStrip);
+new ResizeObserver(measureHud).observe(hudControls);
 
-// Side-panel icons use the same pixel sprites as the map; CSS scales them up.
+// HUD icons use the same pixel sprites as the map; CSS scales them up.
 function paintPanelSprite(panelCanvas, frame) {
   panelCanvas.width = frame.width;
   panelCanvas.height = frame.height;
   panelCanvas.getContext('2d').drawImage(frame, 0, 0);
 }
 paintPanelSprite(document.querySelector('#maya-token'), mayaFrames.walk[0]);
-paintPanelSprite(document.querySelector('#t-rex-icon'), tRexFrames[0]);
 
 const startScene = startChaseScene(document.querySelector('#start-scene'), startOverlay, heroFrames[selectedCharacterId]);
 createCharacterPicker(characterOptions, {

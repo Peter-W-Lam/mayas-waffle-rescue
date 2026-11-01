@@ -13,7 +13,15 @@
 body {
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
+  /* No pull-to-refresh, rubber-band scrolling or text selection while playing on a phone. */
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   background:
     radial-gradient(circle at 12% 8%, rgba(255, 212, 74, 0.17), transparent 29rem),
     linear-gradient(145deg, #173f35, #0b211e 72%);
@@ -24,14 +32,18 @@ canvas {
   font: inherit;
 }
 
-/* The game fills the window above a slim control bar. */
+/* The game fills the window; its controls float over the map. */
 .game-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
-  padding: 12px 12px 8px;
+  /* Stays clear of a phone's notch and home bar. */
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
 }
 
 .game-frame {
@@ -48,6 +60,8 @@ canvas {
 .win-overlay {
   position: absolute;
   inset: 0;
+  /* Short landscape phones scroll the overlay instead of cutting it off. */
+  overflow-y: auto;
   display: grid;
   padding: 28px;
   place-content: center;
@@ -234,277 +248,205 @@ canvas {
   background: rgba(20, 43, 62, 0.86);
 }
 
-/* Floats over the top-right of the map. main.js keeps the hero from walking under it. */
-.rescue-card {
+/* Stacking over the map: overlays, then the corner HUD (so Pause/Restart stay usable on
+   the pause and game-over screens), then the start screen and restart prompt on top. */
+.win-overlay {
+  z-index: 1;
+}
+
+.hud-strip,
+.hud-controls {
+  z-index: 2;
+}
+
+.start-overlay,
+#restart-overlay {
+  z-index: 3;
+}
+
+/* Top-left stats strip. main.js keeps the hero and edge arrows out from under it. */
+.hud-strip {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 10px;
+  left: 10px;
   display: flex;
-  width: 224px;
-  max-height: calc(100% - 64px);
-  overflow-y: auto;
-  padding: 12px 16px 16px;
-  border: 3px solid rgba(255, 255, 255, 0.5);
-  border-radius: 18px;
-  flex-direction: column;
+  max-width: calc(100% - 200px);
+  min-height: 36px;
   align-items: center;
-  color: #17324a;
-  background: rgba(255, 247, 228, 0.93);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
-  line-height: 1.4;
-  text-align: center;
-}
-
-.rescue-card__top {
-  display: flex;
-  align-self: stretch;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.rescue-card__toggle {
-  padding: 3px 10px;
-  border: 0;
+  gap: 4px 14px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
-  color: #17324a;
-  background: rgba(23, 50, 74, 0.1);
-  font-size: 0.72rem;
+  color: #fff8df;
+  background: rgba(15, 38, 33, 0.78);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  font-size: 0.86rem;
   font-weight: 800;
-  cursor: pointer;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 200ms ease, border-color 200ms ease;
 }
 
-.rescue-card__toggle:hover {
-  background: rgba(23, 50, 74, 0.18);
-}
-
-.rescue-card__toggle:focus-visible {
-  outline: 3px solid #17324a;
-  outline-offset: 2px;
-}
-
-.rescue-card__details {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
+.hud-stat {
+  display: inline-flex;
   align-items: center;
+  gap: 5px;
 }
 
-/* Collapsed: one row with Maya, her status and the Show button. */
-.rescue-card.is-collapsed {
-  width: auto;
-  max-width: calc(100% - 24px);
-  padding: 6px 8px 6px 10px;
-  flex-direction: row;
-  gap: 8px;
-}
-
-.rescue-card.is-collapsed .rescue-card__details,
-.rescue-card.is-collapsed .rescue-card__eyebrow {
-  display: none;
-}
-
-.rescue-card.is-collapsed .rescue-card__top {
-  order: 1;
-}
-
-.rescue-card.is-collapsed .maya-token {
-  width: 42px;
-  margin: 0;
-}
-
-.rescue-card.is-collapsed .rescue-state {
-  width: auto;
-  padding: 6px 10px;
-}
-
-.rescue-card__eyebrow,
-.rescue-card__label {
-  margin: 0;
-  color: #8b5a70;
-  font-size: 0.7rem;
+.hud-stat strong {
   font-weight: 900;
-  letter-spacing: 0.13em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-stat__label {
+  color: #ffd44a;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* Maya's standing sprite, drawn into this canvas at load and scaled up crisply. */
-.maya-token {
+.hud-stat__score {
+  display: inline-block;
+  min-width: 3ch;
+}
+
+.hud-storm__bar {
   display: block;
-  width: 64px;
-  height: auto;
-  margin: 8px 0;
-  image-rendering: pixelated;
-}
-
-.rescue-card h2 {
-  margin: 12px 0 8px;
-  font-size: 1.35rem;
-  letter-spacing: -0.04em;
-  line-height: 1.1;
-}
-
-.rescue-card__label--spaced {
-  margin-top: 10px;
-}
-
-.maya-address {
-  margin: 4px 0 0;
-  overflow-wrap: anywhere;
-  color: #17324a;
-  font-size: 1.05rem;
-  font-weight: 900;
-  line-height: 1.25;
-}
-
-.rescue-state {
-  width: 100%;
-  margin: 0;
-  padding: 9px 10px;
-  border-radius: 999px;
-  color: #7c2851;
-  background: #f8d8e6;
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.rescue-card.is-rescued .rescue-state {
-  color: #16523d;
-  background: #ccebdc;
-}
-
-.rescue-card.is-danger .rescue-state {
-  color: #7b2029;
-  background: #ffd0d0;
-}
-
-.waffle-tally {
-  margin: 16px 0 0;
-  color: #7a4b12;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.waffle-tally strong {
-  color: #17324a;
-  font-weight: 900;
-}
-
-.waffle-tally__divider {
-  margin: 0 4px;
-}
-
-.storm-meter {
-  width: 100%;
-  margin: 14px 0 0;
-}
-
-.storm-meter__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 0 6px;
-  color: #34506b;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.storm-meter__header strong {
-  color: #17324a;
-  font-weight: 900;
-}
-
-.storm-meter__bar {
-  height: 10px;
+  width: 72px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #dfe6ec;
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.storm-meter__fill {
+.hud-storm__fill {
+  display: block;
   width: 0;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #8fb8d8, #3f6fa0 60%, #2c3e66);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
-.win-overlay__score {
-  font-weight: 900;
+.hud-storm__phase {
+  color: #c9d8d2;
+  font-size: 0.78rem;
 }
 
-.t-rex-warning {
-  display: flex;
+.hud-rescue {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin: 16px 0 0;
-  color: #8a3d31;
+  gap: 4px;
+  padding: 1px 10px 1px 4px;
+  border-radius: 999px;
+  color: #10402f;
+  background: #ccebdc;
   font-size: 0.78rem;
   font-weight: 900;
 }
 
-.t-rex-icon {
-  flex: none;
+.hud-rescue[hidden] {
+  display: none;
+}
+
+/* Maya's standing sprite, drawn into this canvas at load and scaled up crisply. */
+.hud-rescue__token {
+  display: block;
   width: auto;
   height: 22px;
   image-rendering: pixelated;
 }
 
-/* main.js sizes the canvas's pixels to match this box. */
-#game-canvas {
+.hud-strip.is-danger {
+  border-color: #ff9b9b;
+  background: rgba(123, 32, 41, 0.86);
+  animation: hud-danger-flash 0.45s ease-in-out 3;
+}
+
+@keyframes hud-danger-flash {
+  50% {
+    background: rgba(214, 58, 47, 0.95);
+  }
+}
+
+/* Top-right buttons. */
+.hud-controls {
   position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.game-controls {
+  top: 10px;
+  right: 10px;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px 16px;
-  padding: 0 4px;
+  gap: 8px;
 }
 
-#game-status {
-  flex: 1 1 280px;
-  margin: 0;
-  color: #c9d8d2;
-  font-size: 0.92rem;
+.hud-button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #fff8df;
+  background: rgba(15, 38, 33, 0.78);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.game-buttons {
+.hud-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hud-button:hover {
+  color: #2f2711;
+  background: #ffd44a;
+  transform: translateY(-1px);
+}
+
+.hud-button:active {
+  transform: translateY(1px);
+}
+
+.hud-button:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.hud-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  color: #fff8df;
+  background: rgba(15, 38, 33, 0.78);
+}
+
+/* Two-state buttons (pause/play, music on/off) swap icons with data-state. */
+.hud-button .icon-off,
+.hud-button[data-state='off'] .icon-on {
+  display: none;
+}
+
+.hud-button[data-state='off'] .icon-off {
+  display: block;
+}
+
+/* Restart prompt buttons. */
+.overlay-actions {
   display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 12px;
+  margin-top: 18px;
 }
 
-.map-credit {
-  flex-basis: 100%;
-  margin: 0;
-  color: #90aaa1;
-  font-size: 0.7rem;
-  line-height: 1.2;
-  text-align: center;
-}
-
-.map-credit a {
-  color: #b9cec6;
-}
-
-.map-credit a:hover {
-  color: #ffd44a;
-}
-
-#restart-button,
-#pause-button {
-  flex: none;
-  min-height: 40px;
-  padding: 0 22px;
+.overlay-button {
+  min-height: 44px;
+  padding: 0 24px;
   border: 0;
   border-radius: 999px;
   color: #2f2711;
@@ -512,50 +454,126 @@ canvas {
   box-shadow: 0 5px 0 #b98e08;
   font-weight: 900;
   cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
-#restart-button:hover,
-#pause-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 7px 0 #b98e08;
-}
-
-#restart-button:active,
-#pause-button:active {
-  transform: translateY(3px);
-  box-shadow: 0 2px 0 #b98e08;
-}
-
-#restart-button:focus-visible,
-#pause-button:focus-visible {
-  outline: 4px solid #ffffff;
-  outline-offset: 4px;
-}
-
-#pause-button {
+.overlay-button--quiet {
   color: #17324a;
   background: #d8e9e2;
   box-shadow: 0 5px 0 #789a8e;
 }
 
-#pause-button:hover {
-  box-shadow: 0 7px 0 #789a8e;
-}
-
-#pause-button:active {
+.overlay-button:active {
+  transform: translateY(3px);
   box-shadow: 0 2px 0 #789a8e;
 }
 
+.overlay-button:focus-visible {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+}
+
+/* OpenStreetMap credit (required by the map data licence), tucked into the bottom-left
+   corner and lifted above the weather ticker while it's showing. */
+.map-credit {
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  margin: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: rgba(23, 50, 40, 0.85);
+  background: rgba(245, 235, 212, 0.7);
+  font-size: 0.62rem;
+  line-height: 1.2;
+  transition: bottom 350ms ease;
+}
+
+.map-credit a {
+  color: inherit;
+}
+
+.map-credit a:hover {
+  color: #17324a;
+}
+
+.weather-ticker.is-visible ~ .map-credit {
+  bottom: 44px;
+}
+
+.win-overlay__score {
+  font-weight: 900;
+}
+
+@media (max-width: 640px) {
+  .hud-strip {
+    max-width: calc(100% - 156px);
+    gap: 2px 10px;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+  }
+
+  .hud-storm__phase,
+  .hud-stat__label,
+  #rescue-state {
+    display: none;
+  }
+
+  .hud-storm__bar {
+    width: 48px;
+  }
+
+  .hud-rescue {
+    padding-right: 4px;
+  }
+
+  .hud-strip {
+    border-radius: 18px;
+  }
+
+  /* Keep the three round buttons on one row; debug buttons wrap underneath. */
+  .hud-controls {
+    max-width: 124px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .hud-controls .debug-button {
+    order: 1;
+  }
+
+  .hud-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .weather-ticker.is-visible ~ .map-credit {
+    bottom: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-strip.is-danger {
+    animation: none;
+  }
+
+  .map-credit {
+    transition: none;
+  }
+}
+
+/* Temporary debug buttons, in the top-right row when SHOW_DEBUG_CONTROLS is on. */
 .debug-button {
   flex: none;
-  min-height: 46px;
-  padding: 0 18px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 2px dashed #b6382e;
   border-radius: 999px;
   color: #7b2029;
   background: #fff4f2;
+  font-size: 0.78rem;
   font-weight: 900;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -570,31 +588,78 @@ canvas {
   outline-offset: 4px;
 }
 
-#pause-button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-  transform: none;
+/* main.js sizes the canvas's pixels to match this box. Touches on it drive the thumbstick,
+   so the browser mustn't scroll or zoom on them. */
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+/* Touch thumbstick, placed by touchStick.js with transforms from the frame's top-left. */
+.touch-stick {
+  position: absolute;
+  top: -44px;
+  left: -44px;
+  width: 88px;
+  height: 88px;
+  border: 3px solid rgba(255, 248, 223, 0.7);
+  border-radius: 50%;
+  background: rgba(15, 38, 33, 0.28);
+  pointer-events: none;
+}
+
+.touch-stick[hidden] {
+  display: none;
+}
+
+.touch-stick__knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 3px solid #fff8df;
+  border-radius: 50%;
+  background: rgba(255, 212, 74, 0.9);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Instructions that depend on the input: arrow keys with a mouse, dragging on touch screens. */
+.touch-only {
+  display: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .keyboard-only {
+    display: none;
+  }
+
+  .touch-only {
+    display: inline;
+  }
 }
 
 @media (max-width: 600px) {
   .game-shell {
-    padding: 8px 8px 6px;
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
   }
 
   .game-frame {
     border-width: 4px;
     border-radius: 12px;
-  }
-
-  .game-controls {
-    justify-content: center;
-    text-align: center;
-  }
-
-  .game-buttons {
-    flex: 1 1 100%;
-    justify-content: center;
-    gap: 8px;
   }
 }
 
@@ -716,5 +781,26 @@ canvas {
 
   .weather-ticker[data-level='breaking'] .weather-ticker__tag {
     animation: none;
+  }
+}
+
+/* Short screens (phones held sideways): a smaller intro so Start fits without scrolling. */
+@media (max-height: 480px) {
+  .win-overlay {
+    padding: 14px 20px;
+  }
+
+  .start-scene {
+    width: min(100%, 260px);
+    margin-bottom: 4px;
+  }
+
+  .win-overlay .win-overlay__title {
+    margin: 4px 0 6px;
+    font-size: 1.6rem;
+  }
+
+  #start-button {
+    margin-top: 10px;
   }
 }

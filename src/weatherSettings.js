@@ -9,7 +9,8 @@ export const WEATHER_SETTINGS = {
     floodWindow: [0.14, 0.7], // share of the clock when zones flood
     floodZoneCount: 5, // picked at random from the candidate zones
     warningSeconds: 5,
-    shallowSeconds: 12, // time before shallow water turns deep
+    floodsTurnDeep: false, // false: floods stop at shallow (slow, never impassable)
+    shallowSeconds: 12, // time before shallow water turns deep (when floodsTurnDeep)
     shallowSpeedMultiplier: 0.4,
     tRexBlockedFrom: 'shallow', // or 'deep'
     onStormFull: 'final-surge', // or 'lose'

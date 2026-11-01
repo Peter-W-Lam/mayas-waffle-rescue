@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway: compares looks for the blocks between streets.
+     Open http://localhost:5173/prototype-blocks.html while `npm run dev` runs.
+     Not part of the game build (Vite only builds index.html). -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Block Style Prototype</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a33; font: 14px system-ui, sans-serif; }
+      canvas { display: block; width: 100vw; height: 100vh; cursor: grab; }
+      canvas.dragging { cursor: grabbing; }
+      canvas.squint { filter: grayscale(1) blur(2px); }
+      .bar {
+        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+        color: #fff; background: rgba(15, 18, 24, 0.92); border-radius: 999px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); white-space: nowrap;
+      }
+      .bar button {
+        border: 0; border-radius: 999px; padding: 6px 12px; color: #fff;
+        background: rgba(255, 255, 255, 0.12); font: inherit; cursor: pointer;
+      }
+      .bar button:hover { background: rgba(255, 255, 255, 0.22); }
+      .bar button[aria-pressed='true'] { background: #f2c230; color: #1d1a10; }
+      .bar .label { min-width: 230px; text-align: center; font-weight: 700; }
+      .bar .divider { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.2); }
+      .note {
+        position: fixed; left: 16px; top: 16px; max-width: 340px; padding: 10px 12px;
+        color: #fff; background: rgba(15, 18, 24, 0.85); border-radius: 10px; line-height: 1.4;
+      }
+      .note strong { display: block; margin-bottom: 2px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div class="note" id="note"></div>
+    <div class="bar">
+      <button id="prev" title="Previous style (←)">←</button>
+      <span class="label" id="label"></span>
+      <button id="next" title="Next style (→)">→</button>
+      <span class="divider"></span>
+      <button data-place="inman">Inman Park</button>
+      <button data-place="spruce">Spruce St</button>
+      <button data-place="cabbagetown">Cabbagetown</button>
+      <span class="divider"></span>
+      <button id="snap" title="Draw the background on the same 2× pixel grid as the sprites (P)">Pixel snap</button>
+      <button id="squint" title="Greyscale + blur: can you still find Trevor? (S)">Squint test</button>
+    </div>
+    <script type="module" src="/src/prototype/blocksPrototype.js"></script>
+  </body>
+</html>

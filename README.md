@@ -3,8 +3,8 @@
 A browser game prototype built with vanilla JavaScript, HTML5 Canvas, CSS, and Vite.
 
 The scrolling game world is generated from OpenStreetMap geometry. Trevor starts
-near Krog Street Market and moves with the arrow keys. Waffle House appears at one of
-the hand-picked lots in `src/waffleHouseSites.js` each game, always a long walk from
+at home (Inman Motor Works on Spruce Street) and moves with the arrow keys. Waffle
+House appears at one of the hand-picked lots in `src/waffleHouseSites.js` each game, always a long walk from
 Trevor and Maya and never cut off by that game's flood zones. Movement is constrained to
 the curved street network with a small forgiveness margin and subtle road-centering
 assistance.
