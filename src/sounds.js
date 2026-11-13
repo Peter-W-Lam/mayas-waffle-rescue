@@ -6,6 +6,7 @@ const SOUND_FILES = {
   maya: 'maya.wav',
   waffle: 'waffle.wav',
   tab: 'poptab.wav', // soda can pull tabs
+  // roar: 'roar.wav', // the intro cutscene's roar: add public/audio/roar.wav, then uncomment
 };
 const SOUND_VOLUME = 0.3;
 

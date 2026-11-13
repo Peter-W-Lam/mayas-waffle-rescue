@@ -1,4 +1,8 @@
+import '@fontsource/silkscreen/latin-400.css';
+import '@fontsource/silkscreen/latin-700.css';
+import '@fontsource/vt323/latin-400.css';
 import './style.css';
+import './diner.css';
 import { mapData } from './mapData.js';
 import { applyRoadAdjustments } from './mapAdjustments.js';
 import { createMayaStateFrames } from './mayaSprite.js';
@@ -7,7 +11,7 @@ import { createCharacterPicker } from './characterPicker.js';
 import {
   DINOSAUR_SPECIES, createDinosaur, describeLevel, findSpeciesIdByUrlName, getLevelSettings, updateDinosaur,
 } from './dinosaurs.js';
-import { startWinScene } from './winScene.js';
+import { createSprite, printCheck, setTiles } from './dinerScreens.js';
 import { createWaffleHouseSprite } from './waffleHouseSprite.js';
 import { createKrogStreetMarketSprite } from './krogStreetMarketSprite.js';
 import { createInmanParkSignSprite } from './inmanParkSignSprite.js';
@@ -28,6 +32,7 @@ import { playSound, setSoundsMuted, unlockSounds } from './sounds.js';
 import { MARTA_LINE } from './martaLine.js';
 import { createMarta, drawMartaTracks, drawMartaTrains, updateMarta } from './marta.js';
 import { startChaseScene } from './startScene.js';
+import { playIntro } from './introScene.js';
 import { createTouchStick } from './touchStick.js';
 import { createSodaTabSprite } from './sodaTabSprite.js';
 import { createNeighborhoodCanopy, drawNeighborhoodCanopy } from './neighborhoodCanopy.js';
@@ -43,6 +48,7 @@ const FLOOD_ZONES = SOURCE_FLOOD_ZONES.map((zone) => ({ ...zone, points: scalePo
 const canvas = document.querySelector('#game-canvas');
 const context = canvas.getContext('2d');
 const startButton = document.querySelector('#start-button');
+const startIntroButton = document.querySelector('#start-intro-button');
 const restartButton = document.querySelector('#restart-button');
 const pauseButton = document.querySelector('#pause-button');
 const musicButton = document.querySelector('#music-button');
@@ -70,8 +76,17 @@ const tabCountText = document.querySelector('#tab-count');
 const scoreText = document.querySelector('#score');
 const levelText = document.querySelector('#level-number');
 const gameOverScoreText = document.querySelector('#game-over-score');
-const winEyebrowText = document.querySelector('#win-eyebrow');
+const startTiles = document.querySelector('#start-tiles');
+const startLeaderboard = document.querySelector('#start-leaderboard');
+const winTiles = document.querySelector('#win-tiles');
+const winTitleText = document.querySelector('#win-title');
+const winCheck = document.querySelector('#win-check');
 const winNextLevelText = document.querySelector('#win-next-level');
+const winNextNameText = document.querySelector('#win-next-name');
+const winNextDetailText = document.querySelector('#win-next-detail');
+const gameOverCheck = document.querySelector('#game-over-check');
+const gameOverDinosaurCanvas = document.querySelector('#game-over-dinosaur');
+const playAgainButton = document.querySelector('#play-again-button');
 const nextLevelButton = document.querySelector('#next-level-button');
 const winScoreText = document.querySelector('#win-score');
 const stormPhaseText = document.querySelector('#storm-phase');
@@ -2127,22 +2142,31 @@ function updateDinosaurs(deltaTime) {
       eyebrow: species.caughtEyebrow,
       title: species.caughtTitle(player.name),
       status: `Game over — ${species.name} ${dinosaur.id} caught ${player.name}!`,
+      species,
     });
     return;
   }
 }
 
-function triggerGameOver({ eyebrow, title, status }) {
+// species is the dinosaur that caught the hero, if one did (the storm can end a run too).
+function triggerGameOver({ eyebrow, title, status, species = null }) {
   gameState.status = 'game-over';
   gameState.gameOverTitle = title;
   pressedKeys.clear();
   pauseButton.disabled = true;
   statusText.textContent = status;
-  gameOverEyebrow.textContent = eyebrow;
+  setTiles(gameOverEyebrow, eyebrow.toUpperCase());
   gameOverTitle.textContent = title;
   const isNewBest = saveBestScore(gameState.score) && gameState.score > 0;
   gameOverScoreText.textContent = `You reached level ${gameState.level} with ${gameState.score} points. `
     + (isNewBest ? 'New best score!' : `Best: ${loadBestScore()}`);
+  printCheck(gameOverCheck, {
+    ...getGuestCheck(),
+    extra: { label: 'YOUR BEST', amount: loadBestScore() },
+    stamp: isNewBest ? 'NEW BEST!' : 'GAME OVER',
+  });
+  gameOverDinosaurCanvas.hidden = !species;
+  if (species) gameOverDinosaurSprite.setFrames(dinosaurFrames[species.id]);
   showScoreForm();
   gameOverOverlay.hidden = false;
   updateRescuePanel();
@@ -2575,12 +2599,47 @@ function updateWinCondition() {
   pauseButton.disabled = true;
   saveBestScore(gameState.score);
   statusText.textContent = `Level ${gameState.level} complete! ${gameState.player.name} and Maya reached Waffle House.`;
-  winEyebrowText.textContent = `Level ${gameState.level} complete!`;
-  winNextLevelText.textContent = `Next up — ${describeLevel(gameState.level + 1, FORCED_SPECIES_ID)}`;
+  showLevelCompleteScreen();
   winOverlay.hidden = false;
   // Focused so Enter or Space starts the next level; nothing else moves the game on.
   nextLevelButton.focus();
   updateRescuePanel();
+}
+
+// The parts of the guest check that the level-complete and game-over screens share.
+function getGuestCheck() {
+  const { waffle, tab } = gameState.collected;
+  const { waffle: waffleType, tab: tabType } = PICKUP_TYPES;
+  return {
+    heading: 'GUEST CHECK',
+    meta: [`TABLE: LEVEL ${gameState.level}`, `SERVER: ${gameState.player.name.toUpperCase()}`],
+    lines: [
+      { quantity: waffle, item: 'WAFFLES', price: `@${waffleType.points}`, amount: waffle * waffleType.points },
+      { quantity: tab, item: 'SODA TABS', price: `@${tabType.points}`, amount: tab * tabType.points },
+    ],
+    total: { label: 'TOTAL', amount: gameState.score },
+    footer: 'THANK YOU · COME AGAIN',
+  };
+}
+
+// Level complete: "ORDER UP!" in sign tiles, the run so far on a guest check, and the
+// next level's dinosaurs on the menu board.
+function showLevelCompleteScreen() {
+  const nextLevel = gameState.level + 1;
+  const next = getLevelSettings(nextLevel, FORCED_SPECIES_ID);
+  const check = getGuestCheck();
+
+  setTiles(winTiles, 'ORDER UP!');
+  winTitleText.textContent = `Maya made it to Waffle House · Level ${gameState.level} complete`;
+  printCheck(winCheck, {
+    ...check,
+    lines: [...check.lines, { quantity: 1, item: 'MAYA ROSE BARKER', amount: 'PRICELESS' }],
+    stamp: 'RESCUED',
+  });
+  winNextLevelText.textContent = `Level ${nextLevel}`;
+  winNextNameText.textContent = next.species.plural;
+  winNextDetailText.textContent = next.species.menuLine(next);
+  winNextDinosaurSprite.setFrames(dinosaurFrames[next.species.id]);
 }
 
 // The "level complete" screen stays up until the player presses its button (or Enter).
@@ -3033,10 +3092,43 @@ function selectCharacter(id) {
   }
   gameState.player.name = findCharacter(selectedCharacterId).name;
   startScene.setHero(heroFrames[selectedCharacterId]);
-  winScene.setHero(heroFrames[selectedCharacterId]);
+  winHeroSprite.setFrames(heroFrames[selectedCharacterId].slice(0, 1));
 }
 
+// The start screen has two buttons. "Start game" goes straight into the run; "Start with
+// intro" plays the cutscene first (introScene.js). The game stays frozen behind the
+// cutscene because hasStarted is still false.
+let isIntroPlaying = false;
 function startGame() {
+  if (isIntroPlaying) return;
+  unlockSounds();
+  beginRun();
+}
+
+function startGameWithIntro() {
+  if (isIntroPlaying) return;
+  // Sound has to be switched on from inside the click, even though the music waits for
+  // the intro to end.
+  unlockSounds();
+  music.prime();
+  isIntroPlaying = true;
+  startOverlay.hidden = true;
+  statusText.textContent = 'Intro playing. Press Escape to skip.';
+  const character = findCharacter(selectedCharacterId);
+  playIntro({
+    host: canvas.parentElement,
+    heroFrames: heroFrames[selectedCharacterId],
+    heroSeatedFrame: character.createSeatedFrame(),
+    heroName: character.name,
+    // Runs once, whether the intro finished or was skipped.
+    onDone: () => {
+      isIntroPlaying = false;
+      beginRun();
+    },
+  });
+}
+
+function beginRun() {
   hasStarted = true;
   if (shouldResetOnStart) {
     shouldResetOnStart = false;
@@ -3051,7 +3143,6 @@ function startGame() {
   pauseButton.disabled = false;
   statusText.textContent = getLevelIntro();
   music.play();
-  unlockSounds();
   canvas.focus();
 }
 
@@ -3115,6 +3206,7 @@ function setPaused(paused) {
 
 canvas.tabIndex = -1;
 startButton.addEventListener('click', startGame);
+startIntroButton.addEventListener('click', startGameWithIntro);
 scoreForm.addEventListener('submit', handleScoreSubmit);
 loadLeaderboard(startLeaderboardList, startLeaderboardNote);
 restartButton.addEventListener('click', requestRestart);
@@ -3123,6 +3215,7 @@ restartCancelButton.addEventListener('click', cancelRestart);
 debugDinosaurButton.hidden = !SHOW_DEBUG_CONTROLS;
 debugDinosaurButton.addEventListener('click', toggleDinosaursForDebug);
 nextLevelButton.addEventListener('click', startNextLevel);
+playAgainButton.addEventListener('click', restartGame);
 debugStormButton.hidden = !SHOW_DEBUG_CONTROLS;
 debugStormButton.addEventListener('click', advanceStormForDebug);
 pauseButton.addEventListener('click', togglePause);
@@ -3184,6 +3277,10 @@ function measureHud() {
       top: (box.top - frameBox.top) * scale,
       bottom: (box.bottom - frameBox.top) * scale,
     }));
+  // The level-complete and game-over screens start their sign below the corner buttons
+  // (diner.css), however many rows those wrap onto.
+  const controlsBottom = hudControls.getBoundingClientRect().bottom - frameBox.top;
+  canvas.parentElement.style.setProperty('--hud-clearance', `${Math.round(controlsBottom)}px`);
 }
 
 resizeViewport();
@@ -3200,7 +3297,16 @@ function paintPanelSprite(panelCanvas, frame) {
 paintPanelSprite(document.querySelector('#maya-token'), mayaFrames.walk[0]);
 
 const startScene = startChaseScene(document.querySelector('#start-scene'), startOverlay, heroFrames[selectedCharacterId]);
-const winScene = startWinScene(document.querySelector('#win-scene'), winOverlay, heroFrames[selectedCharacterId]);
+// Sprites on the diner screens: the hero (standing) and Maya (sitting, tail wagging) on
+// the level-complete floor, the next level's dinosaur on its menu board, and whichever
+// dinosaur ended the run on the game-over floor.
+const winHeroSprite = createSprite(document.querySelector('#win-hero'), heroFrames[selectedCharacterId].slice(0, 1));
+createSprite(document.querySelector('#win-maya'), mayaFrames.sit, 400);
+const winNextDinosaurSprite = createSprite(document.querySelector('#win-next-dinosaur'), dinosaurFrames.tRex, 150);
+const gameOverDinosaurSprite = createSprite(gameOverDinosaurCanvas, dinosaurFrames.tRex, 180);
+setTiles(startTiles, "MAYA'S WAFFLE|WEATHER RESCUE");
+// The top 10 starts unfolded where there's room for it beside the Start button.
+startLeaderboard.open = window.matchMedia('(min-width: 900px) and (min-aspect-ratio: 5/4)').matches;
 createCharacterPicker(characterOptions, {
   characters: CHARACTERS,
   framesById: heroFrames,

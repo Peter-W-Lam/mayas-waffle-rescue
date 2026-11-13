@@ -10,23 +10,48 @@ export function createMusic() {
   audio.loop = true;
   audio.preload = 'auto';
   audio.volume = MUSIC_VOLUME;
-  audio.muted = loadMuted();
+  let mutedByPlayer = loadMuted();
+  let shouldBePlaying = false;
+  let isPriming = false;
+  audio.muted = mutedByPlayer;
 
   return {
+    // Call from a click when the music should start a little later (after the intro
+    // cutscene). Safari only lets a track start outside a click if it was first started
+    // inside one, so this starts it silently and stops it again straight away.
+    prime() {
+      if (shouldBePlaying || isPriming) return;
+      isPriming = true;
+      audio.muted = true;
+      audio.play()
+        .then(() => {
+          if (shouldBePlaying) return; // play() was called meanwhile: keep going
+          audio.pause();
+          audio.currentTime = 0;
+        })
+        .catch(() => {})
+        .finally(() => {
+          isPriming = false;
+          audio.muted = mutedByPlayer;
+        });
+    },
     play() {
+      shouldBePlaying = true;
       // play() is refused if the browser blocks audio; the game carries on silently.
       audio.play().catch(() => {});
     },
     pause() {
+      shouldBePlaying = false;
       audio.pause();
     },
     isMuted() {
-      return audio.muted;
+      return mutedByPlayer;
     },
     toggleMuted() {
-      audio.muted = !audio.muted;
-      saveMuted(audio.muted);
-      return audio.muted;
+      mutedByPlayer = !mutedByPlayer;
+      audio.muted = mutedByPlayer || isPriming;
+      saveMuted(mutedByPlayer);
+      return mutedByPlayer;
     },
   };
 }

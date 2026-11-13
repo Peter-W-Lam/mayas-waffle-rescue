@@ -114,66 +114,114 @@
         <!-- Screen-reader copy of the game's progress messages. -->
         <p id="game-status" class="visually-hidden" aria-live="polite">Starting at home on Spruce Street</p>
 
-        <div id="start-overlay" class="win-overlay start-overlay" role="dialog" aria-modal="true" aria-labelledby="start-title">
-          <canvas id="start-scene" class="start-scene" aria-hidden="true"></canvas>
-          <p class="win-overlay__eyebrow">Inman Park + Cabbagetown</p>
-          <p id="start-title" class="win-overlay__title">Maya’s Waffle Weather Rescue</p>
-          <p>
-            Find Maya, dodge the dinosaurs, and
-            <span class="keyboard-only">use the arrow keys</span><span class="touch-only">drag anywhere on the map</span>
-            to bring her safely to Waffle House.
-          </p>
-          <div class="start-actions">
-            <fieldset class="character-picker">
-              <legend class="character-picker__legend">Choose your hero</legend>
-              <div id="character-options" class="character-picker__options"></div>
-            </fieldset>
-            <button id="start-button" type="button">Start game</button>
-          </div>
-          <!-- Online leaderboard (leaderboard.js); collapsed so the start screen stays short. -->
-          <details class="leaderboard leaderboard--start">
-            <summary class="leaderboard__heading">🏆 Top 10 leaderboard</summary>
-            <ol id="start-leaderboard-list" class="leaderboard__list"></ol>
-            <p id="start-leaderboard-note" class="leaderboard__note"></p>
-          </details>
-        </div>
-        <!-- Level complete. Stays up until the player presses Next level (see winScene.js for the picture). -->
-        <div id="win-overlay" class="win-overlay level-complete-overlay" role="dialog" aria-modal="true" aria-labelledby="win-title" hidden>
-          <canvas id="win-scene" class="win-scene" aria-hidden="true"></canvas>
-          <p id="win-eyebrow" class="win-overlay__eyebrow">Level 1 complete!</p>
-          <p id="win-title" class="win-overlay__title">Congrats, you got Maya to Waffle House!</p>
-          <p id="win-score" class="win-overlay__score"></p>
-          <p id="win-next-level" class="level-complete-overlay__next"></p>
-          <div class="overlay-actions">
-            <button id="next-level-button" class="overlay-button" type="button">Next level</button>
-          </div>
-        </div>
-        <div id="game-over-overlay" class="win-overlay game-over-overlay" role="dialog" aria-labelledby="game-over-title" hidden>
-          <p id="game-over-eyebrow" class="win-overlay__eyebrow">Chomp!</p>
-          <p id="game-over-title" class="win-overlay__title">A dinosaur caught Trevor!</p>
-          <p id="game-over-score" class="win-overlay__score"></p>
-          <!-- Leaderboard entry (shown when the run scored points). -->
-          <form id="score-form" class="score-form" hidden>
-            <p class="score-form__heading">Add your score to the leaderboard</p>
-            <div class="score-form__fields">
-              <label class="score-form__field">
-                <span>Name</span>
-                <input id="score-name" name="name" type="text" maxlength="20" autocomplete="nickname" required />
-              </label>
-              <label class="score-form__field score-form__field--wide">
-                <span>Message <span class="score-form__optional">(optional)</span></span>
-                <input id="score-message" name="message" type="text" maxlength="80" autocomplete="off" />
-              </label>
+        <!-- The start, level-complete and game-over screens are drawn as the inside of a
+             Waffle House (diner.css, dinerScreens.js). main.js fills in the letter tiles,
+             guest checks and sprites. -->
+        <div id="start-overlay" class="diner diner--start" role="dialog" aria-modal="true" aria-labelledby="start-title">
+          <header class="diner__sign">
+            <h2 id="start-title" class="visually-hidden">Maya’s Waffle Weather Rescue</h2>
+            <div id="start-tiles" class="diner__tiles diner__tiles--title"></div>
+            <p class="diner__sub">Inman Park + Cabbagetown</p>
+          </header>
+          <div class="diner__body">
+            <section class="diner__board" aria-label="How to play">
+              <p class="diner__board-kicker">Today’s special</p>
+              <ol class="diner__menu">
+                <li>Find Maya</li>
+                <li>Dodge the dinosaurs</li>
+                <li>Get her to Waffle House</li>
+              </ol>
+              <p class="diner__board-detail">
+                <span class="keyboard-only">Arrow keys to run</span><span class="touch-only">Drag anywhere to run</span>
+              </p>
+            </section>
+            <div class="diner__start">
+              <!-- The chase outside, seen through the diner's window. -->
+              <div class="diner__window"><canvas id="start-scene" class="start-scene" aria-hidden="true"></canvas></div>
+              <fieldset class="character-picker">
+                <legend class="character-picker__legend">Choose your hero</legend>
+                <div id="character-options" class="character-picker__options"></div>
+              </fieldset>
+              <button id="start-button" class="diner__button" type="button">Start game</button>
+              <!-- Plays the intro cutscene (introScene.js) before the run; Start game skips it. -->
+              <button id="start-intro-button" class="diner__button diner__button--quiet" type="button">Start with intro</button>
             </div>
-            <button id="score-submit" class="overlay-button" type="submit">Submit score</button>
-          </form>
-          <p id="score-status" class="score-form__status" aria-live="polite"></p>
-          <section id="game-over-leaderboard" class="leaderboard" aria-labelledby="game-over-leaderboard-heading" hidden>
-            <h2 id="game-over-leaderboard-heading" class="leaderboard__heading">🏆 Top 10</h2>
-            <ol id="game-over-leaderboard-list" class="leaderboard__list"></ol>
-            <p id="game-over-leaderboard-note" class="leaderboard__note"></p>
-          </section>
-          <p>Use the restart button to start again from level 1.</p>
+            <!-- Online leaderboard (leaderboard.js), on a guest check. Open on big screens, folded on phones. -->
+            <details id="start-leaderboard" class="diner__check diner__check--list leaderboard">
+              <summary class="diner__check-head">Top 10 regulars</summary>
+              <ol id="start-leaderboard-list" class="leaderboard__list"></ol>
+              <p id="start-leaderboard-note" class="leaderboard__note"></p>
+            </details>
+          </div>
+          <div class="diner__floor"></div>
+        </div>
+        <!-- Level complete. Stays up until the player presses Next level (or Enter). -->
+        <div id="win-overlay" class="diner diner--over-map" role="dialog" aria-modal="true" aria-labelledby="win-title" hidden>
+          <header class="diner__sign">
+            <div id="win-tiles" class="diner__tiles"></div>
+            <p id="win-title" class="diner__sub">Maya made it to Waffle House</p>
+          </header>
+          <div class="diner__body">
+            <div id="win-check" class="diner__check" aria-hidden="true"></div>
+            <!-- The same numbers as the check, as a sentence for screen readers. -->
+            <p id="win-score" class="visually-hidden"></p>
+            <section class="diner__board" aria-label="Next level">
+              <div class="diner__board-top">
+                <div>
+                  <p class="diner__board-kicker">Next on the grill</p>
+                  <p id="win-next-level" class="diner__board-level">Level 2</p>
+                </div>
+                <canvas id="win-next-dinosaur" class="diner__sprite diner__sprite--board" aria-hidden="true"></canvas>
+              </div>
+              <p id="win-next-name" class="diner__board-name"></p>
+              <p id="win-next-detail" class="diner__board-detail"></p>
+              <button id="next-level-button" class="diner__button" type="button">Next level →</button>
+            </section>
+          </div>
+          <div class="diner__floor">
+            <div class="diner__pair" aria-hidden="true">
+              <canvas id="win-hero" class="diner__sprite diner__sprite--hero"></canvas>
+              <canvas id="win-maya" class="diner__sprite diner__sprite--maya"></canvas>
+            </div>
+          </div>
+        </div>
+        <!-- Game over: the same room with the lights down. -->
+        <div id="game-over-overlay" class="diner diner--over-map diner--closed" role="dialog" aria-labelledby="game-over-title" hidden>
+          <header class="diner__sign">
+            <div id="game-over-eyebrow" class="diner__tiles diner__tiles--crooked"></div>
+            <p id="game-over-title" class="diner__sub">A dinosaur caught Trevor!</p>
+          </header>
+          <div class="diner__body">
+            <div id="game-over-check" class="diner__check" aria-hidden="true"></div>
+            <p id="game-over-score" class="visually-hidden"></p>
+            <section class="diner__board diner__board--scores" aria-label="Leaderboard">
+              <!-- Leaderboard entry (shown when the run scored points). -->
+              <form id="score-form" class="score-form" hidden>
+                <p class="diner__board-kicker">Sign the top 10</p>
+                <label class="score-form__field">
+                  <span>Name</span>
+                  <input id="score-name" name="name" type="text" maxlength="20" autocomplete="nickname" required />
+                </label>
+                <label class="score-form__field">
+                  <span>Message <span class="score-form__optional">(optional)</span></span>
+                  <input id="score-message" name="message" type="text" maxlength="80" autocomplete="off" />
+                </label>
+                <button id="score-submit" class="diner__button diner__button--quiet" type="submit">Submit score</button>
+              </form>
+              <p id="score-status" class="score-form__status" aria-live="polite"></p>
+              <section id="game-over-leaderboard" class="leaderboard" aria-labelledby="game-over-leaderboard-heading" hidden>
+                <h2 id="game-over-leaderboard-heading" class="diner__board-kicker">Top 10 regulars</h2>
+                <ol id="game-over-leaderboard-list" class="leaderboard__list"></ol>
+                <p id="game-over-leaderboard-note" class="leaderboard__note"></p>
+              </section>
+              <button id="play-again-button" class="diner__button" type="button">Play again</button>
+            </section>
+          </div>
+          <div class="diner__floor">
+            <div class="diner__pair" aria-hidden="true">
+              <canvas id="game-over-dinosaur" class="diner__sprite diner__sprite--dinosaur"></canvas>
+            </div>
+          </div>
         </div>
         <div id="pause-overlay" class="win-overlay pause-overlay" role="status" aria-live="polite" hidden>
           <p class="win-overlay__eyebrow">Taking a breather</p>

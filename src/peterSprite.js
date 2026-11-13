@@ -60,6 +60,16 @@ const PETER_LEG_FRAMES = [
 
 export const PETER_FRAME_ROWS = PETER_LEG_FRAMES.map((legRows) => [...PETER_BODY_ROWS, ...legRows]);
 
+// Sitting on the couch in the intro cutscene (introScene.js): his lap and the soles of his
+// shoes face the viewer, so this pose is two rows shorter than standing.
+const PETER_SEATED_LEG_ROWS = [
+  '..oppppppppppo..',
+  '..okkkkookkkko..',
+  '..oooooooooooo..',
+];
+
+export const PETER_SEATED_ROWS = [...PETER_BODY_ROWS, ...PETER_SEATED_LEG_ROWS];
+
 function renderFrame(rows) {
   const frame = document.createElement('canvas');
   frame.width = rows[0].length;
@@ -80,4 +90,8 @@ function renderFrame(rows) {
 
 export function createPeterFrames() {
   return PETER_FRAME_ROWS.map(renderFrame);
+}
+
+export function createPeterSeatedFrame() {
+  return renderFrame(PETER_SEATED_ROWS);
 }

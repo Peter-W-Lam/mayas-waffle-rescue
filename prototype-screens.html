@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway: three looks for the "level complete" screen, to pick a direction
+     for the start, between-levels and game-over screens.
+     Open http://localhost:5173/prototype-screens.html while `npm run dev` runs.
+     Switch with the bar at the bottom, the arrow keys, or ?variant=arcade|broadcast|diner.
+     Not part of the game build (Vite only builds index.html). -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screen Style Prototype</title>
+    <!-- Prototype only: the real game would bundle whichever font wins instead of loading it from Google. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&family=Silkscreen:wght@400;700&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- The same cream-bordered frame the game sits in, so each look is judged at real size. -->
+    <main class="shell">
+      <section id="stage" class="stage" aria-live="polite"></section>
+    </main>
+
+    <div class="proto-bar">
+      <button id="proto-prev" type="button" title="Previous look (←)">←</button>
+      <span id="proto-label" class="proto-bar__label"></span>
+      <button id="proto-next" type="button" title="Next look (→)">→</button>
+      <span class="proto-bar__divider"></span>
+      <button id="proto-replay" type="button" title="Replay the entrance (R)">↻ Replay</button>
+    </div>
+
+    <script type="module" src="/src/prototype/screens/main.js"></script>
+  </body>
+</html>

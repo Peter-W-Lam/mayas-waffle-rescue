@@ -5,7 +5,8 @@ import { createTRexFrames } from './tRexSprite.js';
 import { createVelociraptorFrames } from './velociraptorSprite.js';
 import { createAllosaurusFrames } from './allosaurusSprite.js';
 
-// Every speed below is a share of the hero's speed. `round` is how many times the
+// describe() is the spoken summary of a level; plural and menuLine() are what the menu
+// board on the level-complete screen shows. Every speed below is a share of the hero's speed. `round` is how many times the
 // species has already appeared in the run (0 the first time), so each return is harder.
 // roadRadius is how much of a street's width the body takes up; ringRadius and
 // labelOffset place the warning ring and name tag around the sprite.
@@ -32,6 +33,8 @@ export const DINOSAUR_SPECIES = {
       speedRatio: Math.min(0.66 + 0.07 * round, 0.92),
     }),
     describe: ({ count }) => `${count} T-Rexes, slow but relentless`,
+    plural: 'T-Rexes',
+    menuLine: ({ count }) => `${count} of them · slow & relentless`,
     update: updateTRex,
   },
   // Many, small and fast, in packs of three that spawn together. One raptor chases the
@@ -62,6 +65,8 @@ export const DINOSAUR_SPECIES = {
       };
     },
     describe: ({ packs }) => `${packs} packs of 3 velociraptors, fast and flanking`,
+    plural: 'Velociraptors',
+    menuLine: ({ packs }) => `${packs} packs of 3 · fast & flanking`,
     update: updateVelociraptor,
   },
   // A mid-sized ambusher. It prowls slowly toward the hero, and once they're in range it
@@ -92,6 +97,8 @@ export const DINOSAUR_SPECIES = {
       tiredSeconds: Math.max(2.6 - 0.3 * round, 1.4),
     }),
     describe: ({ count }) => `${count} Allosauruses that charge when you get close`,
+    plural: 'Allosauruses',
+    menuLine: ({ count }) => `${count} of them · they charge up close`,
     update: updateAllosaurus,
   },
 };
