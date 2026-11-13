@@ -12,6 +12,8 @@ import {
   DINOSAUR_SPECIES, createDinosaur, describeLevel, findSpeciesIdByUrlName, getLevelSettings, updateDinosaur,
 } from './dinosaurs.js';
 import { createSprite, printCheck, setTiles } from './dinerScreens.js';
+import { setUpHowToPlay } from './howToPlay.js';
+import howToPlayPreviewImage from './howToPlay/find-maya.webp';
 import { createWaffleHouseSprite } from './waffleHouseSprite.js';
 import { createKrogStreetMarketSprite } from './krogStreetMarketSprite.js';
 import { createInmanParkSignSprite } from './inmanParkSignSprite.js';
@@ -203,8 +205,7 @@ const STORM_PHASES = [
   },
   { id: 'full', label: 'Storm has arrived', startsAt: 1 },
 ];
-const SHOW_DEBUG_TRACKERS = true;
-const SHOW_DINOSAUR_TRACKERS = false; // temporary: hides only the dinosaur edge arrows; Maya's stays
+const SHOW_DINOSAUR_TRACKERS = false; // debug: edge-of-screen arrows for off-screen dinosaurs
 const SHOW_DEBUG_CONTROLS = true; // temporary: set to false to hide the debug buttons
 const TRACKER_EDGE_PADDING = 30;
 const ROAD_FORGIVENESS = 7;
@@ -252,6 +253,8 @@ const MAYA_SPAWN_STREETS = [
 const mayaFrames = createMayaStateFrames();
 const heroFrames = Object.fromEntries(CHARACTERS.map((character) => [character.id, character.createFrames()]));
 // The hero picked on the start screen, remembered in this browser between visits.
+// The key keeps the game's old name ("Waffle Weather Rescue") so heroes already saved in
+// players' browsers aren't forgotten.
 const CHARACTER_STORAGE_KEY = 'mayas-waffle-weather-rescue:character';
 let selectedCharacterId = findCharacter(loadSavedCharacterId()).id;
 // Walk frames for every species, keyed by species id.
@@ -1457,6 +1460,8 @@ function drawMaya() {
   context.font = '800 13px system-ui, sans-serif';
   context.strokeStyle = 'rgba(72, 24, 49, 0.9)';
   context.lineWidth = 4;
+  // Rounded corners, or the outline grows long spikes on letters like M and y.
+  context.lineJoin = 'round';
   context.strokeText('Maya', x, y + 27);
   context.fillStyle = '#fff7e4';
   context.fillText('Maya', x, y + 27);
@@ -1484,6 +1489,7 @@ function drawDinosaur(dinosaur) {
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.lineWidth = 4;
+  context.lineJoin = 'round';
   context.strokeStyle = 'rgba(72, 24, 20, 0.9)';
 
   // Above its head: "!" while it rears up to charge, "z z" while it catches its breath.
@@ -2920,12 +2926,14 @@ function drawEdgeTracker(target, label, color, laneOffset = 0, bottomInset = 0) 
 function drawTrackers() {
   // The ticker is sized in CSS pixels; convert to canvas pixels.
   const tickerInset = weatherTicker.getVisibleHeight() * viewport.worldPerCssPixel;
-  // Waffle House moves between games, so point the way once Maya is following.
+  // An arrow at the edge of the screen always points at the current goal: Maya (M) until
+  // she's found, then Waffle House (W), which moves between games. The How to play
+  // guide tells players to follow them.
   if (gameState.maya.following) {
     drawEdgeTracker({ x: waffleHouse.centerX, y: waffleHouse.centerY }, 'W', '#d8920b', 0, tickerInset);
+  } else {
+    drawEdgeTracker(gameState.maya, 'M', '#e94f91', 0, tickerInset);
   }
-  if (!SHOW_DEBUG_TRACKERS) return;
-  drawEdgeTracker(gameState.maya, 'M', '#e94f91', 0, tickerInset);
   if (dinosaursDisabled || !SHOW_DINOSAUR_TRACKERS) return;
   gameState.dinosaurs.forEach((dinosaur, index) => {
     const laneOffset = (index - (gameState.dinosaurs.length - 1) / 2) * 22;
@@ -3304,7 +3312,15 @@ const winHeroSprite = createSprite(document.querySelector('#win-hero'), heroFram
 createSprite(document.querySelector('#win-maya'), mayaFrames.sit, 400);
 const winNextDinosaurSprite = createSprite(document.querySelector('#win-next-dinosaur'), dinosaurFrames.tRex, 150);
 const gameOverDinosaurSprite = createSprite(gameOverDinosaurCanvas, dinosaurFrames.tRex, 180);
-setTiles(startTiles, "MAYA'S WAFFLE|WEATHER RESCUE");
+setTiles(startTiles, "MAYA'S WAFFLE RESCUE");
+// The How to play board on the start screen: its button and its little picture both
+// open the guide.
+const howToPlayPreview = document.querySelector('#how-to-play-preview');
+howToPlayPreview.src = howToPlayPreviewImage;
+setUpHowToPlay({
+  dialog: document.querySelector('#how-to-play'),
+  openers: [document.querySelector('#how-to-play-button'), howToPlayPreview],
+});
 // The top 10 starts unfolded where there's room for it beside the Start button.
 startLeaderboard.open = window.matchMedia('(min-width: 900px) and (min-aspect-ratio: 5/4)').matches;
 createCharacterPicker(characterOptions, {

@@ -6,13 +6,13 @@
     <meta name="theme-color" content="#102a25" />
     <meta
       name="description"
-      content="Maya's Waffle Weather Rescue — a neighborhood rescue adventure."
+      content="Maya's Waffle Rescue — a neighborhood rescue adventure."
     />
-    <title>Maya’s Waffle Weather Rescue</title>
+    <title>Maya’s Waffle Rescue</title>
   </head>
   <body>
     <main class="game-shell">
-      <h1 class="visually-hidden">Maya’s Waffle Weather Rescue</h1>
+      <h1 class="visually-hidden">Maya’s Waffle Rescue</h1>
 
       <section class="game-frame" aria-label="Game area">
         <canvas id="game-canvas" aria-label="A scrolling street map with your hero, Maya, pursuing dinosaurs, and a Waffle House">
@@ -119,21 +119,16 @@
              guest checks and sprites. -->
         <div id="start-overlay" class="diner diner--start" role="dialog" aria-modal="true" aria-labelledby="start-title">
           <header class="diner__sign">
-            <h2 id="start-title" class="visually-hidden">Maya’s Waffle Weather Rescue</h2>
+            <h2 id="start-title" class="visually-hidden">Maya’s Waffle Rescue</h2>
             <div id="start-tiles" class="diner__tiles diner__tiles--title"></div>
             <p class="diner__sub">Inman Park + Cabbagetown</p>
           </header>
           <div class="diner__body">
-            <section class="diner__board" aria-label="How to play">
-              <p class="diner__board-kicker">Today’s special</p>
-              <ol class="diner__menu">
-                <li>Find Maya</li>
-                <li>Dodge the dinosaurs</li>
-                <li>Get her to Waffle House</li>
-              </ol>
-              <p class="diner__board-detail">
-                <span class="keyboard-only">Arrow keys to run</span><span class="touch-only">Drag anywhere to run</span>
-              </p>
+            <!-- Opens the How to play guide (the dialog at the end of this screen). -->
+            <section class="diner__board diner__board--help" aria-label="How to play">
+              <p class="diner__board-kicker">First time here?</p>
+              <img id="how-to-play-preview" class="diner__board-preview" alt="" width="960" height="540" />
+              <button id="how-to-play-button" class="diner__button" type="button">How to play</button>
             </section>
             <div class="diner__start">
               <!-- The chase outside, seen through the diner's window. -->
@@ -154,6 +149,30 @@
             </details>
           </div>
           <div class="diner__floor"></div>
+          <!-- The How to play guide: screenshots clicked through one at a time (howToPlay.js). -->
+          <dialog id="how-to-play" class="howto" aria-labelledby="howto-title">
+            <div class="howto__top">
+              <p id="howto-count" class="diner__board-kicker">How to play</p>
+              <button id="howto-close" class="howto__close" type="button" aria-label="Close how to play">×</button>
+            </div>
+            <div class="howto__picture">
+              <img id="howto-image" alt="" width="960" height="540" />
+              <!-- The arrow keys, drawn over the first picture on computers with a keyboard. -->
+              <div id="howto-keys" class="howto__keys" aria-hidden="true" hidden>
+                <span class="howto__key howto__key--up"></span>
+                <span class="howto__key howto__key--left"></span>
+                <span class="howto__key howto__key--down"></span>
+                <span class="howto__key howto__key--right"></span>
+              </div>
+            </div>
+            <h2 id="howto-title" class="howto__title"></h2>
+            <p id="howto-text" class="howto__text"></p>
+            <div class="howto__nav">
+              <button id="howto-back" class="diner__button diner__button--quiet" type="button">← Back</button>
+              <ol id="howto-dots" class="howto__dots" aria-hidden="true"></ol>
+              <button id="howto-next" class="diner__button" type="button">Next →</button>
+            </div>
+          </dialog>
         </div>
         <!-- Level complete. Stays up until the player presses Next level (or Enter). -->
         <div id="win-overlay" class="diner diner--over-map" role="dialog" aria-modal="true" aria-labelledby="win-title" hidden>

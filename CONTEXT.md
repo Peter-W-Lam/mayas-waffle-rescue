@@ -1,4 +1,4 @@
-# Maya's Waffle Weather Rescue: project context
+# Maya's Waffle Rescue: project context
 
 Reference for anyone (human or LLM) picking up work on this game. It covers what the
 game is, how the code is organized, the rules each system follows, what can be tuned,
@@ -35,13 +35,16 @@ versions of `main.js` and `mapData.js`.
 
 ## Gameplay loop
 
-1. Start screen: choose a hero (Trevor or Peter; remembered in `localStorage`) and
+1. Start screen: a **How to play** button opens a five-picture guide (run, find Maya,
+   get to Waffle House, grab waffles, watch the water). Choose a hero (Trevor or Peter; remembered in `localStorage`) and
    press **Start game**, which goes straight into the run, or **Start with intro**, which
    plays the intro cutscene first. An animated chase scene plays in the diner's window.
 2. Trevor starts at home: Inman Motor Works on Spruce Street, between Inman Walk and
    DeKalb Avenue. Maya spawns far away on a named street and
    wanders; her "last seen" address scrolls in the weather ticker.
-3. Walk into Maya to rescue her; she then follows Trevor's trail.
+3. A pink **M** arrow at the edge of the screen points to Maya. Walk into her to rescue
+   her; she then follows Trevor's trail, and a yellow **W** arrow points to Waffle House.
+   These arrows are part of the game, not debug aids (`drawTrackers`).
 4. Reach Waffle House with Maya to clear the level. A "level complete" screen (the score on a guest check, the next level on a menu board) stays up until the player presses **Next level** or Enter; the next level is on the same map, with everything re-rolled and the score carried over. Getting caught ends the run (one life); the best score is saved in the browser.
 5. Collect waffles (10 pts) and soda can pull tabs (5 pts) along the way; they only add
    to the score (no "x of N" shown on purpose).
@@ -72,7 +75,8 @@ out from under both (`hudRects`).
 | `sounds.js` | Sound effects for finding Maya and picking up waffles and pop tabs (`public/audio/*.wav`). Loaded at startup, unlocked by the Start button, muted along with the music, and silent if anything fails. |
 | `leaderboard.js` | Online top-10 leaderboard in a Supabase `scores` table (plain `fetch`, no library). Holds the public project URL and publishable key; the table's own rules limit visitors to reading and adding. Calls time out after 5s and the game carries on without them. |
 | `startScene.js` | Looping chase animation on the start screen (shown through the diner's window). |
-| `introScene.js`, `intro.css` | The intro cutscene, played when the start screen's **Start with intro** button is pressed (**Start game** skips it): the hero on the couch at home, rain starting, Maya's empty bed, a roar. The story is the `INTRO_SCRIPT` step list at the top; the module builds its own overlay and dialogue box. Skip button or Esc skips; Enter, Space, click or tap moves the dialogue on. The game stays frozen behind it (`hasStarted` is false) and the music starts when it ends. The roar is visual only until `roar.wav` is added (see the commented line in `sounds.js`). |
+| `howToPlay.js`, `howToPlay/` | The How to play guide: a `<dialog>` on the start screen that steps through five screenshots with a line or two each (the `STEPS` list). Back/Next buttons or the arrow keys move through it; Esc, the × or a click outside closes it. The pictures are 960×540 crops of the real game, staged by hand while paused, so retake them if the map or sprites change enough to look wrong. |
+| `introScene.js`, `intro.css` | The intro cutscene, played when the start screen's **Start with intro** button is pressed (**Start game** skips it): the hero on the couch at home in a brightly lit room, rain starting, the TV news saying power is failing and Waffle House is the only place with power, the apartment's power cutting out (the room and TV go dark), Maya's empty bed, a roar, and the hero setting out; it ends on the caption "Find Maya and bring her safely to Waffle House." A `say` step with `speaker: 'tv'` is spoken by the TV. The story is the `INTRO_SCRIPT` step list at the top; the module builds its own overlay and dialogue box. Skip button or Esc skips; Enter, Space, click or tap moves the dialogue on. The game stays frozen behind it (`hasStarted` is false) and the music starts when it ends. The roar is visual only until `roar.wav` is added (see the commented line in `sounds.js`). |
 | `dinerScreens.js`, `diner.css` | The start, level-complete and game-over screens, drawn as the inside of a Waffle House: letter tiles from the sign for titles (`setTiles`), the score as a guest check that prints line by line (`printCheck`), a menu board, and sprites on a checkerboard floor (`createSprite`). `main.js` decides what each screen says. |
 | `characters.js`, `characterPicker.js` | Playable heroes and the start-screen picker. |
 | `neighborhoodCanopy.js`, `buildingData.js` | The blocks between streets: real OSM buildings as muted rooftops under seeded tree canopy. Background only; painted once into a half-size cached ground layer with the lawn, parks and roads (`createGroundLayer` in `main.js`), so it shares the sprites' 2× pixel grid. `buildingData.js` is generated by `tools/extract-buildings.mjs`. |
@@ -229,8 +233,7 @@ In `main.js`:
 - `SHOW_DEBUG_CONTROLS = true` shows two buttons under the map:
   - **🦖 on/off.** Hides and freezes the dinosaurs.
   - **⏩ Storm +10%.** Moves the storm clock forward.
-- `SHOW_DEBUG_TRACKERS = true`: edge-of-screen arrows for off-screen characters.
-  `SHOW_DINOSAUR_TRACKERS = false` currently hides only the dinosaur arrows; Maya's stays.
+- `SHOW_DINOSAUR_TRACKERS = true` adds edge-of-screen arrows for off-screen dinosaurs.
 - URL parameters (always on; harmless to leave in):
   - `?level=5` starts every run at that level.
   - `?dinosaur=velociraptor` (or `t-rex`, `allosaurus`; `raptor` also works) puts that
@@ -290,8 +293,6 @@ In `main.js`:
   - wander until Trevor is near, then chase
   - a debug readout of encounter rate
   - then retune each species' `getSettings`
-- **Waffle House arrow:** an edge-of-screen arrow, probably shown once Maya is
-  following.
 - **Birthday touches:** a personal win-screen message, dinosaur names, inside jokes,
   optional sound.
 - **Safety net:** stop one draw error from freezing the whole game.

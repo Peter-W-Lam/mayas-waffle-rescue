@@ -1,4 +1,4 @@
-# Maya’s Waffle Weather Rescue
+# Maya’s Waffle Rescue
 
 A browser game prototype built with vanilla JavaScript, HTML5 Canvas, CSS, and Vite.
 

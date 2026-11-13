@@ -18,21 +18,22 @@ function element(tag, className, text = '') {
 }
 
 // Spells text in letter tiles, one tile per character, dropping in one after another.
-// Use "|" to start a new row of tiles. Screen readers get the plain text instead.
+// Each word's tiles stay together, and words that don't fit on one line wrap onto the
+// next, so a long title is one row on a laptop and two on a phone. Screen readers get
+// the plain text instead.
 export function setTiles(container, text) {
   let delay = 0;
   container.setAttribute('role', 'img');
-  container.setAttribute('aria-label', text.replaceAll('|', ' '));
-  container.replaceChildren(...text.split('|').map((rowText) => {
-    const row = element('span', 'diner__tile-row');
-    row.append(...[...rowText].map((letter) => {
-      if (letter === ' ') return element('span', 'diner__tile-gap');
+  container.setAttribute('aria-label', text);
+  container.replaceChildren(...text.split(' ').filter(Boolean).map((wordText) => {
+    const word = element('span', 'diner__tile-word');
+    word.append(...[...wordText].map((letter) => {
       const tile = element('span', 'diner__tile', letter);
       tile.style.animationDelay = `${delay}ms`;
       delay += TILE_STAGGER_MS;
       return tile;
     }));
-    return row;
+    return word;
   }));
 }
 

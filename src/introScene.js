@@ -1,5 +1,8 @@
-// The intro cutscene, shown the first time someone presses Start: the hero is at home on
-// the couch, rain starts, Maya's bed is empty, and something roars past the rooftops.
+// The intro cutscene, played by the start screen's "Start with intro" button. The hero is
+// at home on the couch when rain starts. The TV news says power is failing across the
+// neighborhood and only Waffle House still has it; then the apartment's power goes too.
+// Maya's bed is empty, something roars past the rooftops, and the hero heads out to find
+// her and get her to Waffle House.
 //
 // It works like a little stage play. INTRO_SCRIPT lists the steps in order ("wait", "say",
 // "roar"...), playIntro() runs them one at a time, and the room is redrawn every frame from
@@ -40,8 +43,9 @@ const ROAR_LIGHTNING = [
 ];
 
 // One step per line; each runs to completion before the next starts. "wait" pauses, "say"
-// waits for the player, and everything else happens at once (the rain keeps building and
-// the roar keeps playing in the background while later steps run).
+// waits for the player (the hero speaks unless speaker is 'tv'), and everything else
+// happens at once (the rain keeps building and the roar keeps playing in the background
+// while later steps run).
 const INTRO_SCRIPT = [
   { do: 'fade', to: 0, seconds: 1.2 },
   { do: 'wait', seconds: 1.6 },
@@ -54,6 +58,15 @@ const INTRO_SCRIPT = [
   { do: 'rain', level: 1 },
   { do: 'tv', show: 'alert' },
   { do: 'face', direction: 1 }, // back to the TV
+  { do: 'wait', seconds: 0.9 },
+  {
+    do: 'say',
+    speaker: 'tv',
+    text: 'Storm warning! Power is failing across the neighborhood. Waffle House is the only place with power.',
+  },
+  { do: 'powerCut' }, // the room has been bright until now
+  { do: 'wait', seconds: 0.7 },
+  { do: 'emote', mark: '!' },
   { do: 'wait', seconds: 1.3 },
   { do: 'face', direction: -1 }, // toward the empty dog bed
   { do: 'emote', mark: '…' },
@@ -66,10 +79,14 @@ const INTRO_SCRIPT = [
   { do: 'pose', pose: 'stand' },
   { do: 'emote', mark: '!' },
   { do: 'wait', seconds: 2.1 },
+  { do: 'say', text: 'She’s out there with that thing. I have to find her and get her to Waffle House.' },
   { do: 'say', text: 'Hang on, Maya. I’m coming!' },
+  // The goal, spelled out, and left on screen for a moment after the picture fades.
+  { do: 'caption', text: 'Find Maya and bring her safely to Waffle House.' },
   { do: 'door', open: true },
   { do: 'walk', toX: 39, toFootY: 70 },
   { do: 'fade', to: 1, seconds: 0.6 },
+  { do: 'wait', seconds: 1.8 },
 ];
 
 // The room is modelled on the real loft: white block walls, a white plank ceiling with steel
@@ -139,6 +156,8 @@ const COLORS = {
   tvAlertDim: '#8f241b',
   tvAlertBanner: '#ffd44a',
   tvAlertText: '#2f2711',
+  tvOff: '#0b0b10',
+  tvOffShine: '#2a2c38',
   shadow: 'rgba(20, 20, 20, 0.28)',
   bubble: '#ffffff',
   bubbleEdge: '#2a1d17',
@@ -196,6 +215,12 @@ const ROAR_GLYPHS = {
   '!': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
 };
 const ROAR_LETTER_SCALE = 2;
+
+// The newsreader on the TV, for lines with speaker: 'tv'.
+const TV_SPEAKER_NAME = 'WAFL Storm Team 5';
+// When the power fails the lights flicker back on twice before staying off. Each pair is
+// [from, to] in seconds after the cut.
+const POWER_FLICKERS = [[0.12, 0.2], [0.3, 0.36]];
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(value, maximum));
@@ -288,6 +313,7 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     rain: 0, // 0 dry evening, 1 full storm
     rainTarget: 0,
     tv: 'forecast',
+    powerOutTime: -1, // seconds since the power failed; negative while it's still on
     doorOpen: false,
     roarTime: -1, // seconds since the roar began; negative until it does
     hero: {
@@ -308,12 +334,28 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
 
   // ---- Dialogue box (HTML, so the text is real text) ----
 
-  function paintPortrait() {
-    // Head and shoulders of the standing sprite.
+  // The picture beside the words: the hero's head and shoulders, or the TV for the news.
+  function paintPortrait(speaker) {
     const rows = 14;
     portrait.width = heroFrames[0].width;
     portrait.height = rows;
-    portrait.getContext('2d').drawImage(heroFrames[0], 0, 0, portrait.width, rows, 0, 0, portrait.width, rows);
+    const portraitContext = portrait.getContext('2d');
+    if (speaker !== 'tv') {
+      portraitContext.drawImage(heroFrames[0], 0, 0, portrait.width, rows, 0, 0, portrait.width, rows);
+      return;
+    }
+    // A little television showing the weather alert.
+    const fill = (color, x, y, width, height) => {
+      portraitContext.fillStyle = color;
+      portraitContext.fillRect(x, y, width, height);
+    };
+    fill(COLORS.tvBody, 1, 1, 14, 10);
+    fill(COLORS.tvAlert, 2, 2, 12, 8);
+    fill(COLORS.tvCloud, 7, 3, 2, 3);
+    fill(COLORS.tvCloud, 7, 7, 2, 1);
+    fill(COLORS.tvAlertBanner, 2, 9, 12, 1);
+    fill(COLORS.tvBody, 6, 11, 4, 1);
+    fill(COLORS.tvBody, 4, 12, 8, 1);
   }
 
   function clearDialogue() {
@@ -322,12 +364,14 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     lineText.textContent = '';
   }
 
-  function showSpeech(text) {
+  function showSpeech(text, speaker) {
+    const name = speaker === 'tv' ? TV_SPEAKER_NAME : heroName;
+    paintPortrait(speaker);
     dialogue.classList.remove('is-empty', 'is-caption', 'is-waiting');
-    nameText.textContent = heroName;
+    nameText.textContent = name;
     lineText.textContent = '';
     // Screen readers get the whole line at once instead of letter by letter.
-    announcer.textContent = `${heroName}: ${text}`;
+    announcer.textContent = `${name}: ${text}`;
   }
 
   // A line nobody says (a sound, a stage direction). Stays up until the next line replaces it.
@@ -373,6 +417,11 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
       scene.tv = show;
     },
 
+    // The apartment's power fails: the lights and the TV go dark (see isPowerOn).
+    powerCut() {
+      scene.powerOutTime = 0;
+    },
+
     door({ open }) {
       scene.doorOpen = open;
     },
@@ -408,10 +457,10 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     },
 
     // Types the line out, then waits for a press. A press while typing shows the rest.
-    say({ text }) {
+    say({ text, speaker }) {
       let shown = reducedMotion ? text.length : 0;
       let dismissed = false;
-      showSpeech(text);
+      showSpeech(text, speaker);
       return {
         update(deltaTime) {
           if (shown < text.length) shown = Math.min(text.length, shown + deltaTime * TYPING_SPEED);
@@ -474,6 +523,7 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     const rainStep = RAIN_EASE_PER_SECOND * deltaTime;
     scene.rain += clamp(scene.rainTarget - scene.rain, -rainStep, rainStep);
     if (scene.roarTime >= 0) scene.roarTime += deltaTime;
+    if (scene.powerOutTime >= 0) scene.powerOutTime += deltaTime;
     const hero = scene.hero;
     hero.hopTime = Math.max(0, hero.hopTime - deltaTime);
     hero.emoteTime = Math.max(0, hero.emoteTime - deltaTime);
@@ -495,6 +545,15 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
         if (pixel === '#') context.fillRect(left + x * scale, top + y * scale, scale, scale);
       });
     });
+  }
+
+  // Whether the apartment's lights and TV are on right now. They stay on until the power
+  // cut, then flicker back twice before going out for good.
+  function isPowerOn() {
+    const time = scene.powerOutTime;
+    if (time < 0) return true;
+    if (reducedMotion) return false;
+    return POWER_FLICKERS.some(([from, to]) => time >= from && time < to);
   }
 
   // How bright the lightning is right now, 0 to 1.
@@ -636,8 +695,11 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     rect(COLORS.skyline, x, ROOFLINE_Y + 1, width, filmTop - ROOFLINE_Y - 1);
     rect(COLORS.skyline, x, ROOFLINE_Y - 2, 19, 3);
     rect(COLORS.skyline, x + 4, ROOFLINE_Y - 4, 6, 2);
-    rect(COLORS.litWindow, x + 3, ROOFLINE_Y + 1, 2, 2);
-    rect(COLORS.litWindow, x + 12, ROOFLINE_Y + 1, 2, 2);
+    // The neighbours' lights go out with ours.
+    if (isPowerOn()) {
+      rect(COLORS.litWindow, x + 3, ROOFLINE_Y + 1, 2, 2);
+      rect(COLORS.litWindow, x + 12, ROOFLINE_Y + 1, 2, 2);
+    }
     const leaves = toCssColor(mixColors(TREE_LEAVES, NIGHT_SHADE, 0.25 + 0.65 * scene.rain));
     rect(COLORS.skyline, x + 37, ROOFLINE_Y - 5, 2, 7);
     rect(leaves, x + 33, ROOFLINE_Y - 13, 8, 2);
@@ -775,9 +837,15 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     rect(COLORS.plantLight, 156, 67, 1, 1);
   }
 
-  // The TV starts on the WAFL Storm Team forecast and switches to a weather alert.
+  // The TV starts on the WAFL Storm Team forecast and switches to a weather alert. With
+  // the power out it's a dark screen with a faint reflection.
   function drawTvScreen() {
     const { x, y, width, height } = TV_SCREEN;
+    if (!isPowerOn()) {
+      rect(COLORS.tvOff, x, y, width, height);
+      rect(COLORS.tvOffShine, x + 2, y + 2, 3, 1);
+      return;
+    }
     const isAlert = scene.tv === 'alert';
     const blink = !reducedMotion && Math.floor(scene.time / 0.45) % 2 === 1;
     const background = isAlert ? (blink ? COLORS.tvAlertDim : COLORS.tvAlert) : COLORS.tvSky;
@@ -913,8 +981,12 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     const heroTop = drawHero();
     drawForeground();
 
-    // The room dims as the storm rolls in. Lit things are drawn again on top so they glow.
-    rect(`rgba(14, 20, 44, ${0.08 + 0.4 * scene.rain})`, -OVERSCAN, -OVERSCAN, SCENE_WIDTH + OVERSCAN * 2, SCENE_HEIGHT + OVERSCAN * 2);
+    // The lights keep the room bright however dark it gets outside. Once the power fails
+    // the room is only as light as the storm lets it be. The TV is drawn after the
+    // darkness so that, while it's on, it glows.
+    if (!isPowerOn()) {
+      rect(`rgba(14, 20, 44, ${0.12 + 0.42 * scene.rain})`, -OVERSCAN, -OVERSCAN, SCENE_WIDTH + OVERSCAN * 2, SCENE_HEIGHT + OVERSCAN * 2);
+    }
     drawTvScreen();
     if (lightning > 0) {
       drawWindowGlass(lightning);
