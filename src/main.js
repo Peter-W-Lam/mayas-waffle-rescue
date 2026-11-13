@@ -200,6 +200,12 @@ const PLAYER_MOVEMENT_SUBSTEP = 3;
 // How far from a side street Trevor can be and still get slid into the turn.
 const CORNER_ASSIST_RANGE = 32;
 const CORNER_ASSIST_MIN_ALIGNMENT = 0.7;
+// And how far ahead of him, along its own direction, that side street may begin.
+const CORNER_ASSIST_MAX_GAP = 40;
+// Glancing off a curb (see findGlancingStep): headings tried, in radians. The limit
+// matches ROAD_SLIDE_MIN_ALIGNMENT, so a curb met nearly square-on still stops Trevor.
+const GLANCE_TURN_STEP = Math.PI / 18;
+const GLANCE_MAX_TURN = (Math.PI / 18) * 8;
 const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 const MAJOR_ROAD_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary']);
 const LABEL_DEDUPLICATION_DISTANCE = 210 * MAP_SCALE;
@@ -1581,11 +1587,31 @@ function canPlayerOccupy(x, y) {
     return false;
   }
 
-  if (isInsideWaffleHouseAccess(x, y)) return true;
+  return isInsideWaffleHouseAccess(x, y) || isOnRoad(x, y, PLAYER_RADIUS);
+}
 
-  const nearest = findNearestRoadPoint(x, y);
-  const playableRadius = nearest.road.width / 2 - PLAYER_RADIUS + ROAD_FORGIVENESS;
-  return nearest.distance <= playableRadius;
+// Whether a body of this radius fits on any street at this spot: within the street's
+// half-width, less the body, plus a little forgiveness. Every street is checked, not
+// just the nearest one. Where a narrow street meets a wide one, a spot can be nearest
+// the narrow street's centreline, and outside it, yet still on the wide street; testing
+// only the nearest street left invisible notches there that the hero snagged on.
+function isOnRoad(x, y, bodyRadius) {
+  for (const road of mapData.roads) {
+    const reach = road.width / 2 - bodyRadius + ROAD_FORGIVENESS;
+    const { points } = road;
+    for (let index = 1; index < points.length; index += 1) {
+      const startX = points[index - 1][0];
+      const startY = points[index - 1][1];
+      const segmentX = points[index][0] - startX;
+      const segmentY = points[index][1] - startY;
+      const lengthSquared = segmentX * segmentX + segmentY * segmentY;
+      const progress = lengthSquared === 0
+        ? 0
+        : clamp(((x - startX) * segmentX + (y - startY) * segmentY) / lengthSquared, 0, 1);
+      if (Math.hypot(x - startX - segmentX * progress, y - startY - segmentY * progress) <= reach) return true;
+    }
+  }
+  return false;
 }
 
 function isInsideWaffleHouseBuilding(x, y) {
@@ -1614,12 +1640,11 @@ function canDinosaurOccupy(x, y, radius) {
   if (x - radius < 0 || x + radius > WORLD_WIDTH || y - radius < 0 || y + radius > WORLD_HEIGHT) {
     return false;
   }
-  if (isInsideWaffleHouseAccess(x, y)) return true;
-
-  const nearest = findNearestRoadPoint(x, y);
-  const playableRadius = nearest.road.width / 2 - radius + ROAD_FORGIVENESS;
-  return nearest.distance <= playableRadius;
+  return isInsideWaffleHouseAccess(x, y) || isOnRoad(x, y, radius);
 }
+
+// The last corner-assist nudge, until Trevor next moves forwards: { inputX, inputY, side }.
+let lastCornerNudge = null;
 
 function movePlayer(deltaX, deltaY) {
   const distance = Math.hypot(deltaX, deltaY);
@@ -1634,6 +1659,7 @@ function movePlayer(deltaX, deltaY) {
   if (canStepTo(desiredX, desiredY)) {
     gameState.player.x = desiredX;
     gameState.player.y = desiredY;
+    lastCornerNudge = null;
     return;
   }
 
@@ -1677,27 +1703,81 @@ function movePlayer(deltaX, deltaY) {
   if (bestSlide) {
     gameState.player.x = bestSlide.x;
     gameState.player.y = bestSlide.y;
+    lastCornerNudge = null;
     return;
   }
 
+  // Corner nudges in a row, with the same keys held, have to keep going the same way.
+  // Being pulled one way and then the other means two side streets are competing, and
+  // following both would shake Trevor on the spot.
   const cornerStep = findCornerAssistStep(inputX, inputY, distance, canStepTo);
-  if (cornerStep) {
+  const reversesLastNudge = cornerStep
+    && lastCornerNudge
+    && lastCornerNudge.side !== cornerStep.side
+    && lastCornerNudge.inputX * inputX + lastCornerNudge.inputY * inputY > 0.99;
+  if (cornerStep && !reversesLastNudge) {
     gameState.player.x = cornerStep.x;
     gameState.player.y = cornerStep.y;
+    lastCornerNudge = { inputX, inputY, side: cornerStep.side };
+    return;
+  }
+
+  const glanceStep = findGlancingStep(inputX, inputY, distance, canStepTo);
+  if (glanceStep) {
+    gameState.player.x = glanceStep.x;
+    gameState.player.y = glanceStep.y;
+    lastCornerNudge = null;
     return;
   }
 
   // Retain axis sliding for tight building corners where there is no road tangent.
+  const beforeX = gameState.player.x;
+  const beforeY = gameState.player.y;
   if (canStepTo(desiredX, gameState.player.y)) gameState.player.x = desiredX;
   if (canStepTo(gameState.player.x, desiredY)) gameState.player.y = desiredY;
+  if (gameState.player.x !== beforeX || gameState.player.y !== beforeY) lastCornerNudge = null;
+}
+
+// Glancing off a curb: when nothing above found a way on, turn the step a little at a
+// time to either side and take the first heading that's open. This carries Trevor
+// round shapes that follow no street's direction: the rounded outside of a bend, the
+// point where two streets meet at a sharp angle, the end of a cul-de-sac. Pushing
+// square into a curb still stops him, because no heading within GLANCE_MAX_TURN is open.
+// Every glance still moves him the way he's pressing, so he can't be bounced back and forth.
+function findGlancingStep(inputX, inputY, distance, canStepTo) {
+  const { x: playerX, y: playerY, headingX, headingY } = gameState.player;
+
+  for (let turn = GLANCE_TURN_STEP; turn <= GLANCE_MAX_TURN + 1e-9; turn += GLANCE_TURN_STEP) {
+    const cos = Math.cos(turn);
+    const sin = Math.sin(turn);
+    const steps = [sin, -sin].map((side) => {
+      const directionX = inputX * cos - inputY * side;
+      const directionY = inputX * side + inputY * cos;
+      return { x: playerX + directionX * distance, y: playerY + directionY * distance, directionX, directionY };
+    }).filter((step) => canStepTo(step.x, step.y));
+
+    if (steps.length === 1) return steps[0];
+    if (steps.length === 2) {
+      // A point with open road on both sides: keep going the way he was already heading.
+      const [first, second] = steps;
+      const firstMatch = first.directionX * headingX + first.directionY * headingY;
+      const secondMatch = second.directionX * headingX + second.directionY * headingY;
+      return secondMatch > firstMatch ? second : first;
+    }
+  }
+  return null;
 }
 
 // Corner assist (like Pac-Man's): when Trevor presses toward a side street he's a
-// little past or short of, slide him along his current road toward it instead of
+// little past or short of, nudge him sideways until he lines up with it instead of
 // stopping him at the curb. Only used when the move he asked for is blocked.
+//
+// The nudge is always square to the way he's pressing, never backwards. Every other
+// kind of step in movePlayer moves him forwards, so no two of them can undo each other
+// and leave him jittering on the spot.
 function findCornerAssistStep(inputX, inputY, distance, canStepTo) {
   const { x: playerX, y: playerY } = gameState.player;
-  let best = null;
+  let closest = null;
 
   for (const road of mapData.roads) {
     for (let index = 1; index < road.points.length; index += 1) {
@@ -1723,20 +1803,39 @@ function findCornerAssistStep(inputX, inputY, distance, canStepTo) {
       const offsetX = nearest.x - playerX;
       const offsetY = nearest.y - playerY;
       const forward = offsetX * tangentX + offsetY * tangentY;
+      // The street has to start close by. Without this, the centreline of a street
+      // hundreds of pixels away, extended to here, tugged Trevor sideways and made him
+      // jitter against the curb.
+      if (Math.abs(forward) > CORNER_ASSIST_MAX_GAP) continue;
       const lateralX = offsetX - tangentX * forward;
       const lateralY = offsetY - tangentY * forward;
       const lateralDistance = Math.hypot(lateralX, lateralY);
-      if (lateralDistance < 0.5 || lateralDistance > CORNER_ASSIST_RANGE) continue;
-      if (best && lateralDistance >= best.lateralDistance) continue;
+      if (lateralDistance > CORNER_ASSIST_RANGE) continue;
+      // Only the closest street counts, even if he's already lined up with it or the
+      // nudge toward it turns out to be blocked. Falling back to a farther street made
+      // him hop back and forth between the two.
+      if (closest && lateralDistance >= closest.lateralDistance) continue;
+      if (lateralDistance < 0.5) {
+        closest = { lateralDistance, isLinedUp: true };
+        continue;
+      }
 
-      const step = Math.min(distance, lateralDistance);
-      const x = playerX + (lateralX / lateralDistance) * step;
-      const y = playerY + (lateralY / lateralDistance) * step;
-      if (canStepTo(x, y)) best = { x, y, lateralDistance };
+      // How far he has to move sideways to reach the centreline. The street runs within
+      // 45° of his input, so its centreline is never close to square-on to the nudge.
+      const sideX = -inputY;
+      const sideY = inputX;
+      const sideShare = (lateralX * sideX + lateralY * sideY) / lateralDistance;
+      const step = Math.min(distance, lateralDistance / Math.abs(sideShare)) * Math.sign(sideShare);
+      closest = {
+        x: playerX + sideX * step,
+        y: playerY + sideY * step,
+        side: Math.sign(sideShare), // which way the nudge goes: 1 or -1
+        lateralDistance,
+      };
     }
   }
 
-  return best;
+  return closest && !closest.isLinedUp && canStepTo(closest.x, closest.y) ? closest : null;
 }
 
 function applyRoadMagnet(deltaTime) {

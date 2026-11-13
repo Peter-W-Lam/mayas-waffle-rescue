@@ -106,12 +106,25 @@ note), `tools/` (data extraction scripts).
   ends sit clear of the Boulevard and Carroll Street flood zones.
 
 ### Movement
-- `canPlayerOccupy` means within a road's playable band (road half-width minus the
-  body radius, plus `ROAD_FORGIVENESS`), or inside the Waffle House access path.
-- `movePlayer`, in order: tries the direct step; slides along a nearby road tangent;
-  applies **corner assist** (`findCornerAssistStep`, a Pac-Man-style slide toward a
-  side street up to `CORNER_ASSIST_RANGE` away, only when blocked); then axis
-  fallback. `applyRoadMagnet` gently centers Trevor on his road.
+- `canPlayerOccupy` means within **any** road's playable band (road half-width minus the
+  body radius, plus `ROAD_FORGIVENESS`; see `isOnRoad`), or inside the Waffle House access
+  path. It must check every road, not just the nearest: where a narrow street meets a
+  wide one, nearest-only left invisible notches that the hero snagged on.
+- `movePlayer` tries, in order:
+  1. the direct step;
+  2. a slide along a nearby road's direction;
+  3. **corner assist** (`findCornerAssistStep`): a Pac-Man-style sideways nudge to line
+     up with a side street that starts within `CORNER_ASSIST_MAX_GAP` and is up to
+     `CORNER_ASSIST_RANGE` to one side;
+  4. a **glance** off the curb (`findGlancingStep`): turn the step up to 80° either way
+     and take the first open heading, which carries the hero round rounded bends and
+     sharp street corners;
+  5. the axis fallback.
+- **Every step moves forwards or exactly sideways relative to the keys held, never
+  backwards.** That rule is what stops two fallbacks undoing each other and shaking the
+  hero on the spot; keep it when changing any of them. Corner nudges also can't reverse
+  direction while the same keys are held (`lastCornerNudge`).
+- `applyRoadMagnet` gently centers Trevor on his road.
 - Frame time is clamped to `[0, 0.032]` seconds. It must never go negative: a negative
   step once pushed sprite animation to frame −1 and crashed rendering.
 
