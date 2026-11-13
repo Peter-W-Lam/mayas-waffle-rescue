@@ -4,7 +4,10 @@ import { applyRoadAdjustments } from './mapAdjustments.js';
 import { createMayaStateFrames } from './mayaSprite.js';
 import { CHARACTERS, findCharacter } from './characters.js';
 import { createCharacterPicker } from './characterPicker.js';
-import { createTRexFrames } from './tRexSprite.js';
+import {
+  DINOSAUR_SPECIES, createDinosaur, describeLevel, findSpeciesIdByUrlName, getLevelSettings, updateDinosaur,
+} from './dinosaurs.js';
+import { startWinScene } from './winScene.js';
 import { createWaffleHouseSprite } from './waffleHouseSprite.js';
 import { createKrogStreetMarketSprite } from './krogStreetMarketSprite.js';
 import { createInmanParkSignSprite } from './inmanParkSignSprite.js';
@@ -29,6 +32,7 @@ import { createTouchStick } from './touchStick.js';
 import { createSodaTabSprite } from './sodaTabSprite.js';
 import { createNeighborhoodCanopy, drawNeighborhoodCanopy } from './neighborhoodCanopy.js';
 import { BUILDINGS } from './buildingData.js';
+import { fetchRank, fetchTopScores, submitScore } from './leaderboard.js';
 
 // Must run before anything below reads the road geometry. Road tweaks use the
 // original coordinates, so they're applied before the map is scaled up.
@@ -43,7 +47,7 @@ const restartButton = document.querySelector('#restart-button');
 const pauseButton = document.querySelector('#pause-button');
 const musicButton = document.querySelector('#music-button');
 const music = createMusic();
-const debugTRexButton = document.querySelector('#debug-t-rex-button');
+const debugDinosaurButton = document.querySelector('#debug-dinosaur-button');
 const debugStormButton = document.querySelector('#debug-storm-button');
 const weatherTickerElement = document.querySelector('#weather-ticker');
 const weatherTicker = createWeatherTicker({
@@ -68,6 +72,7 @@ const levelText = document.querySelector('#level-number');
 const gameOverScoreText = document.querySelector('#game-over-score');
 const winEyebrowText = document.querySelector('#win-eyebrow');
 const winNextLevelText = document.querySelector('#win-next-level');
+const nextLevelButton = document.querySelector('#next-level-button');
 const winScoreText = document.querySelector('#win-score');
 const stormPhaseText = document.querySelector('#storm-phase');
 const stormBar = document.querySelector('#storm-bar');
@@ -79,6 +84,16 @@ const characterOptions = document.querySelector('#character-options');
 const gameOverOverlay = document.querySelector('#game-over-overlay');
 const pauseOverlay = document.querySelector('#pause-overlay');
 const startOverlay = document.querySelector('#start-overlay');
+const scoreForm = document.querySelector('#score-form');
+const scoreNameInput = document.querySelector('#score-name');
+const scoreMessageInput = document.querySelector('#score-message');
+const scoreSubmitButton = document.querySelector('#score-submit');
+const scoreStatusText = document.querySelector('#score-status');
+const gameOverLeaderboard = document.querySelector('#game-over-leaderboard');
+const gameOverLeaderboardList = document.querySelector('#game-over-leaderboard-list');
+const gameOverLeaderboardNote = document.querySelector('#game-over-leaderboard-note');
+const startLeaderboardList = document.querySelector('#start-leaderboard-list');
+const startLeaderboardNote = document.querySelector('#start-leaderboard-note');
 
 // The visible slice of the map, in world pixels. It follows the size of the game frame
 // (see resizeViewport): one world pixel per CSS pixel, zoomed in on very large screens so
@@ -117,14 +132,14 @@ const MAYA_STRIDE_DURATION = 0.14;
 // While resting before she's found, Maya either sniffs or sits, looping that pose.
 const MAYA_REST_POSE_FRAME_DURATIONS = { sniff: 0.3, sit: 0.4 };
 const MAYA_SNIFF_CHANCE = 0.6;
-const T_REX_ROAD_RADIUS = 11;
-const T_REX_CATCH_DISTANCE = 31;
-const T_REX_MIN_SPAWN_DISTANCE = 950 * MAP_SCALE;
-const T_REX_MIN_PACK_DISTANCE = 420 * MAP_SCALE;
-const T_REX_MIN_MAYA_DISTANCE = 500 * MAP_SCALE;
-const T_REX_MIN_WAFFLE_HOUSE_DISTANCE = 400 * MAP_SCALE;
-const T_REX_SPRITE_SCALE = 2;
-const T_REX_STRIDE_DURATION = 0.18;
+// Where dinosaurs may spawn. Species, counts and speeds live in dinosaurs.js.
+const DINOSAUR_MIN_SPAWN_DISTANCE = 950 * MAP_SCALE; // from the hero
+const DINOSAUR_MIN_GROUP_DISTANCE = 420 * MAP_SCALE; // between lone dinosaurs or packs
+const DINOSAUR_MIN_MAYA_DISTANCE = 500 * MAP_SCALE;
+const DINOSAUR_MIN_WAFFLE_HOUSE_DISTANCE = 400 * MAP_SCALE;
+const PACK_SPAWN_SPACING = 38; // packmates line up this far apart along their street
+// An Allosaurus runs with a quicker stride while it charges.
+const CHARGE_STRIDE_SCALE = 0.6;
 // Collectibles scattered along the streets. Counts scale with the map because its
 // streets get longer.
 const PICKUP_TYPES = {
@@ -140,31 +155,19 @@ const WAFFLE_SIZE = 18;
 const SODA_TAB_SCALE = 2;
 const REACHABILITY_CELL_SIZE = 8;
 const WEATHER = WEATHER_SETTINGS[ACTIVE_DIFFICULTY];
-// Levels: reaching Waffle House starts the next level on the same map; getting caught
-// ends the run. Level 3 matches the original one-level game. After that, each level adds
-// a T-Rex, a little T-Rex speed and a shorter storm, up to the caps.
-const EARLY_LEVELS = [
-  { tRexCount: 4, tRexSpeedRatio: 0.7, stormLengthRatio: 1.2 },
-  { tRexCount: 5, tRexSpeedRatio: 0.75, stormLengthRatio: 1.1 },
-  { tRexCount: 6, tRexSpeedRatio: 0.8, stormLengthRatio: 1 },
-];
-const MAX_T_REX_COUNT = 10;
-const MAX_T_REX_SPEED_RATIO = 0.92; // always slower than the player
-const MIN_STORM_LENGTH_RATIO = 0.65;
-const LEVEL_ADVANCE_DELAY = 2.5; // seconds the "level complete" screen shows
+// Levels: reaching Waffle House ends the level, and the "Next level" button starts the
+// next one on the same map; getting caught ends the run. Each level has one dinosaur
+// species and gets harder (see getLevelSettings in dinosaurs.js).
 const BEST_SCORE_STORAGE_KEY = 'waffle-rescue-best-score';
-
-// tRexSpeedRatio is a share of the player's speed; stormLengthRatio scales the
-// weather's stormDurationSeconds.
-function getLevelSettings(level) {
-  if (level <= EARLY_LEVELS.length) return EARLY_LEVELS[level - 1];
-  const last = EARLY_LEVELS[EARLY_LEVELS.length - 1];
-  const extra = level - EARLY_LEVELS.length;
-  return {
-    tRexCount: Math.min(last.tRexCount + extra, MAX_T_REX_COUNT),
-    tRexSpeedRatio: Math.min(last.tRexSpeedRatio + 0.03 * extra, MAX_T_REX_SPEED_RATIO),
-    stormLengthRatio: Math.max(last.stormLengthRatio - 0.07 * extra, MIN_STORM_LENGTH_RATIO),
-  };
+const PLAYER_NAME_STORAGE_KEY = 'waffle-rescue-player-name';
+// Debug shortcuts in the page address, e.g. ?level=5 or ?dinosaur=velociraptor (or both).
+// level is where a run starts; dinosaur puts that species on every level.
+const URL_PARAMETERS = new URLSearchParams(window.location.search);
+const MAX_START_LEVEL = 99;
+const START_LEVEL = clamp(Math.floor(Number(URL_PARAMETERS.get('level'))) || 1, 1, MAX_START_LEVEL);
+const FORCED_SPECIES_ID = findSpeciesIdByUrlName(URL_PARAMETERS.get('dinosaur'));
+if (URL_PARAMETERS.has('dinosaur') && !FORCED_SPECIES_ID) {
+  console.warn(`Unknown ?dinosaur= value. Try: ${Object.keys(DINOSAUR_SPECIES).join(', ')}.`);
 }
 const STORM_PHASES = [
   { id: 'clear', label: 'Clear skies', startsAt: 0 },
@@ -186,7 +189,7 @@ const STORM_PHASES = [
   { id: 'full', label: 'Storm has arrived', startsAt: 1 },
 ];
 const SHOW_DEBUG_TRACKERS = true;
-const SHOW_T_REX_TRACKERS = false; // temporary: hides only the T-Rex edge arrows; Maya's stays
+const SHOW_DINOSAUR_TRACKERS = false; // temporary: hides only the dinosaur edge arrows; Maya's stays
 const SHOW_DEBUG_CONTROLS = true; // temporary: set to false to hide the debug buttons
 const TRACKER_EDGE_PADDING = 30;
 const ROAD_FORGIVENESS = 7;
@@ -230,7 +233,10 @@ const heroFrames = Object.fromEntries(CHARACTERS.map((character) => [character.i
 // The hero picked on the start screen, remembered in this browser between visits.
 const CHARACTER_STORAGE_KEY = 'mayas-waffle-weather-rescue:character';
 let selectedCharacterId = findCharacter(loadSavedCharacterId()).id;
-const tRexFrames = createTRexFrames();
+// Walk frames for every species, keyed by species id.
+const dinosaurFrames = Object.fromEntries(
+  Object.values(DINOSAUR_SPECIES).map((species) => [species.id, species.createFrames()]),
+);
 const waffleHouseSprite = createWaffleHouseSprite();
 const LANDMARK_SPRITE_SCALE = 2;
 // Rotated sprites are drawn with smoothing so their edges don't look jagged. Enlarging them
@@ -310,7 +316,7 @@ let playerTrail = [];
 let isPaused = false;
 let hasStarted = false;
 let shouldResetOnStart = false;
-let tRexesDisabled = false; // debug toggle; survives restarts
+let dinosaursDisabled = false; // debug toggle; survives restarts
 
 function closestPointOnSegment(x, y, start, end) {
   const segmentX = end[0] - start[0];
@@ -558,7 +564,7 @@ const neighborhoodCanopy = createNeighborhoodCanopy({
 const GROUND_LAYER_PIXEL = 2;
 const groundLayer = createGroundLayer();
 
-// Streets Maya (and the T-Rexes) can spawn on.
+// Streets Maya (and the dinosaurs) can spawn on.
 const spawnRoads = mapData.roads.filter(
   (road) => MAYA_SPAWN_STREETS.some((prefix) => road.name.startsWith(prefix))
     && getPathLength(road.points) >= 120,
@@ -572,6 +578,9 @@ const initialGameState = Object.freeze({
     x: startingRoadPoint.x,
     y: startingRoadPoint.y,
     facing: 1,
+    // Unit vector of the hero's last movement; raptor flankers aim ahead of it.
+    headingX: 1,
+    headingY: 0,
     isMoving: false,
     walkTime: 0,
   }),
@@ -710,58 +719,57 @@ function pickMayaSpot(fromTrevor, fromWaffleHouse) {
   return best;
 }
 
-function createTRex(maya, existingTRexes, index) {
+// Picks where a lone dinosaur or a pack starts: a random spot on Maya's streets that is
+// far from the hero, Maya, Waffle House and the groups already placed. If nothing clears
+// every distance, the most spread-out spot tried wins.
+function pickDinosaurSpawn(maya, placedGroups) {
   let fallback = null;
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const road = spawnRoads[Math.floor(Math.random() * spawnRoads.length)];
-    const point = getPointAlongPath(road.points, Math.random() * getPathLength(road.points));
+    const distanceAlongRoad = Math.random() * getPathLength(road.points);
+    const point = getPointAlongPath(road.points, distanceAlongRoad);
     const distanceFromTrevor = Math.hypot(point.x - startingRoadPoint.x, point.y - startingRoadPoint.y);
     const distanceFromMaya = Math.hypot(point.x - maya.x, point.y - maya.y);
     const distanceFromWaffleHouse = Math.hypot(point.x - waffleHouse.centerX, point.y - waffleHouse.centerY);
-    const distanceFromPack = existingTRexes.length === 0
+    const distanceFromGroups = placedGroups.length === 0
       ? Infinity
-      : Math.min(...existingTRexes.map((tRex) => Math.hypot(point.x - tRex.x, point.y - tRex.y)));
-    const safetyScore = Math.min(distanceFromTrevor, distanceFromMaya, distanceFromWaffleHouse, distanceFromPack);
+      : Math.min(...placedGroups.map((group) => Math.hypot(point.x - group.x, point.y - group.y)));
+    const safetyScore = Math.min(distanceFromTrevor, distanceFromMaya, distanceFromWaffleHouse, distanceFromGroups);
+    const spawn = { road, distanceAlongRoad, x: point.x, y: point.y, safetyScore };
 
-    if (!fallback || safetyScore > fallback.safetyScore) {
-      fallback = { point, safetyScore };
-    }
+    if (!fallback || safetyScore > fallback.safetyScore) fallback = spawn;
     if (
-      distanceFromTrevor < T_REX_MIN_SPAWN_DISTANCE
-      || distanceFromMaya < T_REX_MIN_MAYA_DISTANCE
-      || distanceFromWaffleHouse < T_REX_MIN_WAFFLE_HOUSE_DISTANCE
-      || distanceFromPack < T_REX_MIN_PACK_DISTANCE
+      distanceFromTrevor < DINOSAUR_MIN_SPAWN_DISTANCE
+      || distanceFromMaya < DINOSAUR_MIN_MAYA_DISTANCE
+      || distanceFromWaffleHouse < DINOSAUR_MIN_WAFFLE_HOUSE_DISTANCE
+      || distanceFromGroups < DINOSAUR_MIN_GROUP_DISTANCE
     ) continue;
 
-    return {
-      id: index + 1,
-      x: point.x,
-      y: point.y,
-      heading: Math.random() * Math.PI * 2,
-      facing: 1,
-      isMoving: false,
-      walkTime: 0,
-    };
+    return spawn;
   }
 
-  return {
-    id: index + 1,
-    x: fallback.point.x,
-    y: fallback.point.y,
-    heading: Math.random() * Math.PI * 2,
-    facing: 1,
-    isMoving: false,
-    walkTime: 0,
-  };
+  return fallback;
 }
 
-function createTRexPack(maya, count) {
-  const tRexes = [];
-  for (let index = 0; index < count; index += 1) {
-    tRexes.push(createTRex(maya, tRexes, index));
+// Creates the level's dinosaurs. Pack hunters start lined up along one street; loners
+// are each a group of one.
+function createDinosaurs(maya, { species, count }) {
+  const dinosaurs = [];
+  const groups = [];
+
+  while (dinosaurs.length < count) {
+    const spawn = pickDinosaurSpawn(maya, groups);
+    const roadLength = getPathLength(spawn.road.points);
+    groups.push(spawn);
+
+    for (let packIndex = 0; packIndex < species.packSize && dinosaurs.length < count; packIndex += 1) {
+      const offset = (packIndex - (species.packSize - 1) / 2) * PACK_SPAWN_SPACING;
+      const point = getPointAlongPath(spawn.road.points, clamp(spawn.distanceAlongRoad + offset, 0, roadLength));
+      dinosaurs.push(createDinosaur(species, dinosaurs.length + 1, point, { pack: groups.length, packIndex }));
+    }
   }
-  return tRexes;
+  return dinosaurs;
 }
 
 function shuffle(items) {
@@ -880,10 +888,16 @@ function placeWaffleHouse(house) {
   reachabilityGrid = { columns, rows, reachable };
 }
 
-// Starts a level. A new game starts at level 1; the next level keeps the run's score
-// and tallies. Everything else (Maya, Waffle House, T-Rexes, floods, pickups) is re-rolled.
-function resetGameState({ level = 1, score = 0, collected = { waffle: 0, tab: 0 } } = {}) {
-  const levelSettings = getLevelSettings(level);
+// Announced when a level starts: what's hunting the hero, and where Maya was last seen.
+function getLevelIntro() {
+  return `${describeLevel(gameState.level, FORCED_SPECIES_ID)}. Find Maya at ${gameState.maya.address}`;
+}
+
+// Starts a level. A new game starts at level 1 (or the ?level= debug parameter); the next
+// level keeps the run's score and tallies. Everything else (Maya, Waffle House, dinosaurs,
+// floods, pickups) is re-rolled.
+function resetGameState({ level = START_LEVEL, score = 0, collected = { waffle: 0, tab: 0 } } = {}) {
+  const levelSettings = getLevelSettings(level, FORCED_SPECIES_ID);
   const floodZones = createFloodZones();
   const spawnPlan = planSpawns(floodZones);
   placeWaffleHouse(spawnPlan.waffleHouse);
@@ -895,10 +909,9 @@ function resetGameState({ level = 1, score = 0, collected = { waffle: 0, tab: 0 
     levelSettings,
     score,
     maya,
-    tRexes: createTRexPack(maya, levelSettings.tRexCount),
+    dinosaurs: createDinosaurs(maya, levelSettings),
     pickups: createPickups(),
     collected: { ...collected },
-    nextLevelTimer: 0,
     pickupPopups: [],
     storm: { progress: 0, phase: 'clear', finalSurge: false },
     floodZones,
@@ -915,7 +928,7 @@ function resetGameState({ level = 1, score = 0, collected = { waffle: 0, tab: 0 
   pauseButton.disabled = !hasStarted;
   updatePauseButton();
   statusText.textContent = hasStarted
-    ? `Level ${level} — find Maya at ${gameState.maya.address}`
+    ? getLevelIntro()
     : 'Ready — press Start Game to begin.';
   updateRescuePanel();
   updateScorePanel();
@@ -1430,28 +1443,45 @@ function drawMaya() {
   context.textBaseline = 'alphabetic';
 }
 
-function drawTRex(tRex) {
-  const { x, y, id } = tRex;
-  const pulse = 32 + Math.sin(performance.now() / 170) * 2;
+function drawDinosaur(dinosaur) {
+  const { x, y, species, state } = dinosaur;
+  // An Allosaurus about to charge, or charging, pulses faster and brighter.
+  const isAttacking = state === 'windup' || state === 'charge';
+  const pulse = species.ringRadius + Math.sin(performance.now() / (isAttacking ? 60 : 170)) * 2;
 
   context.beginPath();
   context.arc(x, y, pulse, 0, Math.PI * 2);
-  context.fillStyle = 'rgba(186, 54, 43, 0.16)';
+  context.fillStyle = isAttacking ? 'rgba(214, 48, 34, 0.3)' : 'rgba(186, 54, 43, 0.16)';
   context.fill();
-  context.strokeStyle = 'rgba(186, 54, 43, 0.5)';
+  context.strokeStyle = isAttacking ? 'rgba(214, 48, 34, 0.85)' : 'rgba(186, 54, 43, 0.5)';
   context.lineWidth = 3;
   context.stroke();
 
-  drawWalkingSprite(tRexFrames, tRex, T_REX_SPRITE_SCALE, T_REX_STRIDE_DURATION);
+  const strideDuration = species.strideDuration * (state === 'charge' ? CHARGE_STRIDE_SCALE : 1);
+  drawWalkingSprite(dinosaurFrames[species.id], dinosaur, species.spriteScale, strideDuration);
 
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.font = '900 13px system-ui, sans-serif';
-  context.strokeStyle = 'rgba(72, 24, 20, 0.9)';
   context.lineWidth = 4;
-  context.strokeText(`T-Rex ${id}`, x, y + 34);
-  context.fillStyle = '#fff4d8';
-  context.fillText(`T-Rex ${id}`, x, y + 34);
+  context.strokeStyle = 'rgba(72, 24, 20, 0.9)';
+
+  // Above its head: "!" while it rears up to charge, "z z" while it catches its breath.
+  const mood = state === 'windup' ? '!' : state === 'tired' ? 'z z' : null;
+  if (mood) {
+    const moodY = y - species.labelOffset - 6;
+    context.font = state === 'windup' ? '900 26px system-ui, sans-serif' : '900 14px system-ui, sans-serif';
+    context.strokeText(mood, x, moodY);
+    context.fillStyle = state === 'windup' ? '#ffd44a' : '#d9ecff';
+    context.fillText(mood, x, moodY);
+  }
+
+  const label = species.getLabel(dinosaur);
+  if (label) {
+    context.font = '900 13px system-ui, sans-serif';
+    context.strokeText(label, x, y + species.labelOffset);
+    context.fillStyle = '#fff4d8';
+    context.fillText(label, x, y + species.labelOffset);
+  }
   context.textAlign = 'start';
   context.textBaseline = 'alphabetic';
 }
@@ -1579,19 +1609,15 @@ function isInsideWaffleHouseAccess(x, y) {
   return false;
 }
 
-function canTRexOccupy(x, y) {
-  if (
-    x - T_REX_ROAD_RADIUS < 0
-    || x + T_REX_ROAD_RADIUS > WORLD_WIDTH
-    || y - T_REX_ROAD_RADIUS < 0
-    || y + T_REX_ROAD_RADIUS > WORLD_HEIGHT
-  ) {
+// radius is the species' roadRadius: how much of the street's width its body takes up.
+function canDinosaurOccupy(x, y, radius) {
+  if (x - radius < 0 || x + radius > WORLD_WIDTH || y - radius < 0 || y + radius > WORLD_HEIGHT) {
     return false;
   }
   if (isInsideWaffleHouseAccess(x, y)) return true;
 
   const nearest = findNearestRoadPoint(x, y);
-  const playableRadius = nearest.road.width / 2 - T_REX_ROAD_RADIUS + ROAD_FORGIVENESS;
+  const playableRadius = nearest.road.width / 2 - radius + ROAD_FORGIVENESS;
   return nearest.distance <= playableRadius;
 }
 
@@ -1778,6 +1804,11 @@ function updatePlayer(deltaTime) {
     applyRoadMagnet(deltaTime);
   }
 
+  const movedDistance = Math.hypot(player.x - previousX, player.y - previousY);
+  if (movedDistance > 0.05) {
+    player.headingX = (player.x - previousX) / movedDistance;
+    player.headingY = (player.y - previousY) / movedDistance;
+  }
   updateWalkAnimation(player, previousX, previousY, deltaTime);
 }
 
@@ -1966,48 +1997,40 @@ function angleDifference(first, second) {
   return Math.abs(Math.atan2(Math.sin(first - second), Math.cos(first - second)));
 }
 
-function updateTRex(tRex, deltaTime) {
+// What dinosaurs.js needs to know about the map and the hero to move a dinosaur.
+const dinosaurWorld = {
+  hero: null,
+  heroSpeed: PLAYER_SPEED,
+  settings: null,
+  dinosaurs: null,
+  canOccupy: canDinosaurOccupy,
+  // Dinosaurs won't wade in (from the depth set by dinosaursBlockedFrom), but can walk out.
+  isInBlockingWater: (x, y, radius) => getFloodDepthAt(x, y, radius) >= DINOSAUR_BLOCKING_DEPTH,
+};
+
+function updateDinosaurs(deltaTime) {
   if (gameState.status === 'won' || gameState.status === 'game-over') return;
 
-  const previousX = tRex.x;
-  const previousY = tRex.y;
-  const desiredAngle = Math.atan2(gameState.player.y - tRex.y, gameState.player.x - tRex.x);
-  const step = PLAYER_SPEED * gameState.levelSettings.tRexSpeedRatio * deltaTime;
-  // T-Rexes won't wade in (from the depth set by tRexBlockedFrom), but can walk out.
-  const startsInBlockingWater = getFloodDepthAt(tRex.x, tRex.y, T_REX_ROAD_RADIUS) >= T_REX_BLOCKING_DEPTH;
-  let bestMove = null;
+  const { player } = gameState;
+  dinosaurWorld.hero = player;
+  dinosaurWorld.settings = gameState.levelSettings;
+  dinosaurWorld.dinosaurs = gameState.dinosaurs;
 
-  // Try the direct pursuit angle first, then progressively wider alternatives.
-  for (let index = 0; index < 24; index += 1) {
-    const direction = index === 0 ? 0 : (index % 2 === 0 ? -1 : 1);
-    const offset = Math.ceil(index / 2) * (Math.PI / 12) * direction;
-    const angle = desiredAngle + offset;
-    const x = tRex.x + Math.cos(angle) * step;
-    const y = tRex.y + Math.sin(angle) * step;
-    if (!canTRexOccupy(x, y)) continue;
-    if (!startsInBlockingWater && getFloodDepthAt(x, y, T_REX_ROAD_RADIUS) >= T_REX_BLOCKING_DEPTH) continue;
+  for (const dinosaur of gameState.dinosaurs) {
+    const previousX = dinosaur.x;
+    const previousY = dinosaur.y;
+    updateDinosaur(dinosaur, deltaTime, dinosaurWorld);
+    updateWalkAnimation(dinosaur, previousX, previousY, deltaTime);
 
-    const distanceToTrevor = Math.hypot(gameState.player.x - x, gameState.player.y - y);
-    const steeringCost = angleDifference(angle, tRex.heading) * 1.5;
-    const score = distanceToTrevor + steeringCost;
-    if (!bestMove || score < bestMove.score) bestMove = { x, y, angle, score };
+    const { species } = dinosaur;
+    if (Math.hypot(player.x - dinosaur.x, player.y - dinosaur.y) > species.catchDistance) continue;
+    triggerGameOver({
+      eyebrow: species.caughtEyebrow,
+      title: species.caughtTitle(player.name),
+      status: `Game over — ${species.name} ${dinosaur.id} caught ${player.name}!`,
+    });
+    return;
   }
-
-  if (bestMove) {
-    tRex.x = bestMove.x;
-    tRex.y = bestMove.y;
-    tRex.heading = bestMove.angle;
-  }
-  updateWalkAnimation(tRex, previousX, previousY, deltaTime);
-
-  const catchDistance = Math.hypot(gameState.player.x - tRex.x, gameState.player.y - tRex.y);
-  if (catchDistance > T_REX_CATCH_DISTANCE) return;
-
-  triggerGameOver({
-    eyebrow: 'Chomp!',
-    title: `A T-Rex caught ${gameState.player.name}!`,
-    status: `Game over — T-Rex ${tRex.id} caught ${gameState.player.name}!`,
-  });
 }
 
 function triggerGameOver({ eyebrow, title, status }) {
@@ -2021,6 +2044,7 @@ function triggerGameOver({ eyebrow, title, status }) {
   const isNewBest = saveBestScore(gameState.score) && gameState.score > 0;
   gameOverScoreText.textContent = `You reached level ${gameState.level} with ${gameState.score} points. `
     + (isNewBest ? 'New best score!' : `Best: ${loadBestScore()}`);
+  showScoreForm();
   gameOverOverlay.hidden = false;
   updateRescuePanel();
 }
@@ -2028,7 +2052,7 @@ function triggerGameOver({ eyebrow, title, status }) {
 const FLOOD_DEPTH = { dry: 0, warning: 0, shallow: 1, deep: 2 };
 const SHALLOW_WATER = FLOOD_DEPTH.shallow;
 const DEEP_WATER = FLOOD_DEPTH.deep;
-const T_REX_BLOCKING_DEPTH = FLOOD_DEPTH[WEATHER.tRexBlockedFrom];
+const DINOSAUR_BLOCKING_DEPTH = FLOOD_DEPTH[WEATHER.dinosaursBlockedFrom];
 
 function distanceToPath(x, y, points) {
   let nearest = Infinity;
@@ -2414,13 +2438,6 @@ function updateTickerRoundup(deltaTime) {
   weatherTicker.setRoundup(items, level);
 }
 
-function updateTRexPack(deltaTime) {
-  for (const tRex of gameState.tRexes) {
-    updateTRex(tRex, deltaTime);
-    if (gameState.status === 'game-over') break;
-  }
-}
-
 function updatePickups() {
   const now = performance.now();
   gameState.pickupPopups = gameState.pickupPopups.filter(
@@ -2455,24 +2472,25 @@ function updateWinCondition() {
   if (!trevorIsInside || !mayaHasArrived) return;
 
   gameState.status = 'won';
-  gameState.nextLevelTimer = LEVEL_ADVANCE_DELAY;
   pressedKeys.clear();
   pauseButton.disabled = true;
   saveBestScore(gameState.score);
   statusText.textContent = `Level ${gameState.level} complete! ${gameState.player.name} and Maya reached Waffle House.`;
   winEyebrowText.textContent = `Level ${gameState.level} complete!`;
-  winNextLevelText.textContent = `Get ready for level ${gameState.level + 1}…`;
+  winNextLevelText.textContent = `Next up — ${describeLevel(gameState.level + 1, FORCED_SPECIES_ID)}`;
   winOverlay.hidden = false;
+  // Focused so Enter or Space starts the next level; nothing else moves the game on.
+  nextLevelButton.focus();
   updateRescuePanel();
 }
 
-// After the "level complete" screen, the next level starts on its own.
-function updateLevelAdvance(deltaTime) {
+// The "level complete" screen stays up until the player presses its button (or Enter).
+function startNextLevel() {
   if (gameState.status !== 'won') return;
-  gameState.nextLevelTimer -= deltaTime;
-  if (gameState.nextLevelTimer > 0) return;
   pressedKeys.clear();
   resetGameState({ level: gameState.level + 1, score: gameState.score, collected: gameState.collected });
+  previousFrameTime = performance.now();
+  canvas.focus();
 }
 
 function loadBestScore() {
@@ -2492,6 +2510,118 @@ function saveBestScore(score) {
     // Not remembered this time.
   }
   return true;
+}
+
+// ---- Online leaderboard (see leaderboard.js) ----
+// Bumped on every game over and restart, so a slow save or load from an earlier run
+// can't update the screen for a later one.
+let leaderboardRunId = 0;
+
+function loadPlayerName() {
+  try {
+    return window.localStorage.getItem(PLAYER_NAME_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function savePlayerName(name) {
+  try {
+    window.localStorage.setItem(PLAYER_NAME_STORAGE_KEY, name);
+  } catch {
+    // Not remembered this time.
+  }
+}
+
+// Fills a top-10 list. Names and messages go in as plain text, never HTML.
+function renderLeaderboard(list, note, rows, highlightId) {
+  list.replaceChildren(...rows.map((row, index) => {
+    const item = document.createElement('li');
+    item.className = 'leaderboard__row';
+    if (row.id === highlightId) item.classList.add('is-you');
+    const cells = [
+      ['leaderboard__rank', `${index + 1}.`],
+      ['leaderboard__name', row.name],
+      ['leaderboard__level', `Lv ${row.level}`],
+      ['leaderboard__score', String(row.score)],
+    ];
+    if (row.message) cells.push(['leaderboard__message', `“${row.message}”`]);
+    for (const [className, text] of cells) {
+      const cell = document.createElement('span');
+      cell.className = className;
+      cell.textContent = text;
+      item.append(cell);
+    }
+    return item;
+  }));
+  note.textContent = rows.length ? '' : 'No scores yet — be the first!';
+}
+
+async function loadLeaderboard(list, note, highlightId = null) {
+  const runId = leaderboardRunId;
+  note.textContent = 'Loading…';
+  try {
+    const rows = await fetchTopScores(10);
+    if (runId !== leaderboardRunId) return;
+    renderLeaderboard(list, note, rows, highlightId);
+  } catch {
+    if (runId !== leaderboardRunId) return;
+    list.replaceChildren();
+    note.textContent = 'Leaderboard unavailable right now.';
+  }
+}
+
+function setScoreFormBusy(isBusy) {
+  scoreSubmitButton.disabled = isBusy;
+  scoreNameInput.disabled = isBusy;
+  scoreMessageInput.disabled = isBusy;
+}
+
+// Game over: offer the leaderboard form for runs that scored, otherwise just show the list.
+function showScoreForm() {
+  leaderboardRunId += 1;
+  const scored = gameState.score > 0;
+  scoreForm.hidden = !scored;
+  setScoreFormBusy(false);
+  scoreNameInput.value = loadPlayerName();
+  scoreMessageInput.value = '';
+  scoreStatusText.textContent = '';
+  gameOverLeaderboard.hidden = scored;
+  if (!scored) loadLeaderboard(gameOverLeaderboardList, gameOverLeaderboardNote);
+}
+
+async function handleScoreSubmit(event) {
+  event.preventDefault();
+  const name = scoreNameInput.value.trim();
+  if (!name) {
+    scoreStatusText.textContent = 'Please enter a name.';
+    scoreNameInput.focus();
+    return;
+  }
+
+  const runId = leaderboardRunId;
+  const run = { score: gameState.score, level: gameState.level };
+  setScoreFormBusy(true);
+  scoreStatusText.textContent = 'Saving…';
+  try {
+    const row = await submitScore({ name, message: scoreMessageInput.value, ...run });
+    savePlayerName(name);
+    const rank = await fetchRank(run.score).catch(() => null);
+    if (runId !== leaderboardRunId) return;
+    scoreForm.hidden = true;
+    scoreStatusText.textContent = rank ? `Saved! You're #${rank} on the leaderboard.` : 'Saved!';
+    gameOverLeaderboard.hidden = false;
+    loadLeaderboard(gameOverLeaderboardList, gameOverLeaderboardNote, row?.id);
+  } catch {
+    if (runId !== leaderboardRunId) return;
+    setScoreFormBusy(false);
+    scoreStatusText.textContent = "Couldn't save — try again.";
+  }
+}
+
+// Keys typed into the leaderboard form belong to the form, not the game.
+function isTypingTarget(target) {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 }
 
 function clamp(value, minimum, maximum) {
@@ -2638,10 +2768,10 @@ function drawTrackers() {
   }
   if (!SHOW_DEBUG_TRACKERS) return;
   drawEdgeTracker(gameState.maya, 'M', '#e94f91', 0, tickerInset);
-  if (tRexesDisabled || !SHOW_T_REX_TRACKERS) return;
-  gameState.tRexes.forEach((tRex, index) => {
-    const laneOffset = (index - (gameState.tRexes.length - 1) / 2) * 22;
-    drawEdgeTracker(tRex, `R${tRex.id}`, '#b6382e', laneOffset, tickerInset);
+  if (dinosaursDisabled || !SHOW_DINOSAUR_TRACKERS) return;
+  gameState.dinosaurs.forEach((dinosaur, index) => {
+    const laneOffset = (index - (gameState.dinosaurs.length - 1) / 2) * 22;
+    drawEdgeTracker(dinosaur, `${dinosaur.species.name[0]}${dinosaur.id}`, '#b6382e', laneOffset, tickerInset);
   });
 }
 
@@ -2659,7 +2789,7 @@ function drawGame() {
   gameState.pickups.forEach(drawPickup);
   drawPickupPopups();
   drawFloodMarkers();
-  if (!tRexesDisabled) gameState.tRexes.forEach(drawTRex);
+  if (!dinosaursDisabled) gameState.dinosaurs.forEach(drawDinosaur);
   drawWadingRipples(gameState.maya);
   drawMaya();
   drawWadingRipples(gameState.player);
@@ -2679,7 +2809,7 @@ function gameLoop(timestamp) {
   if (hasStarted && !isPaused) {
     updatePlayer(deltaTime);
     updateMaya(deltaTime);
-    if (!tRexesDisabled) updateTRexPack(deltaTime);
+    if (!dinosaursDisabled) updateDinosaurs(deltaTime);
     updatePickups();
     updateMarta(marta, deltaTime);
     updateStorm(deltaTime);
@@ -2689,7 +2819,6 @@ function gameLoop(timestamp) {
       weatherTicker.update(deltaTime);
     }
     updateWinCondition();
-    updateLevelAdvance(deltaTime);
     updateCamera();
     updateRain(
       rain,
@@ -2706,6 +2835,7 @@ function gameLoop(timestamp) {
 }
 
 function handleKeyDown(event) {
+  if (isTypingTarget(event.target)) return;
   if (handleShortcutKey(event)) return;
   if (!ARROW_KEYS.has(event.key)) return;
   event.preventDefault();
@@ -2715,11 +2845,12 @@ function handleKeyDown(event) {
 
 function handleKeyUp(event) {
   if (!ARROW_KEYS.has(event.key)) return;
-  event.preventDefault();
+  if (!isTypingTarget(event.target)) event.preventDefault();
   pressedKeys.delete(event.key);
 }
 
-// P or Esc pauses and resumes; Esc also backs out of the restart prompt; M toggles music.
+// P or Esc pauses and resumes; Esc also backs out of the restart prompt; M toggles music;
+// Enter starts the next level from the "level complete" screen.
 // Returns true when the key was used.
 function handleShortcutKey(event) {
   if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return false;
@@ -2727,6 +2858,10 @@ function handleShortcutKey(event) {
   // Typing into a button (Space/Enter) or a form control is left to the browser.
   if (key === 'escape' && !restartOverlay.hidden) {
     cancelRestart();
+  } else if (key === 'enter' && hasStarted && gameState.status === 'won') {
+    // Enter on a focused button (Next level, Restart, Music) is that button's own click.
+    if (event.target instanceof HTMLButtonElement) return false;
+    startNextLevel();
   } else if (key === 'p' || key === 'escape') {
     if (!restartOverlay.hidden) return false;
     togglePause();
@@ -2762,6 +2897,8 @@ function cancelRestart() {
 }
 
 function restartGame() {
+  leaderboardRunId += 1;
+  loadLeaderboard(startLeaderboardList, startLeaderboardNote);
   hasStarted = false;
   isPaused = false;
   shouldResetOnStart = true;
@@ -2797,6 +2934,7 @@ function selectCharacter(id) {
   }
   gameState.player.name = findCharacter(selectedCharacterId).name;
   startScene.setHero(heroFrames[selectedCharacterId]);
+  winScene.setHero(heroFrames[selectedCharacterId]);
 }
 
 function startGame() {
@@ -2812,7 +2950,7 @@ function startGame() {
   previousFrameTime = performance.now();
   startOverlay.hidden = true;
   pauseButton.disabled = false;
-  statusText.textContent = `Level ${gameState.level} — find Maya at ${gameState.maya.address}`;
+  statusText.textContent = getLevelIntro();
   music.play();
   unlockSounds();
   canvas.focus();
@@ -2827,11 +2965,11 @@ function advanceStormForDebug() {
   canvas.focus();
 }
 
-// Debug only: freezes and hides the T-Rex pack so the map can be explored safely.
-function toggleTRexesForDebug() {
-  tRexesDisabled = !tRexesDisabled;
-  debugTRexButton.setAttribute('aria-pressed', String(tRexesDisabled));
-  debugTRexButton.textContent = tRexesDisabled ? '🦖 off' : '🦖 on';
+// Debug only: freezes and hides the dinosaurs so the map can be explored safely.
+function toggleDinosaursForDebug() {
+  dinosaursDisabled = !dinosaursDisabled;
+  debugDinosaurButton.setAttribute('aria-pressed', String(dinosaursDisabled));
+  debugDinosaurButton.textContent = dinosaursDisabled ? '🦖 off' : '🦖 on';
   canvas.focus();
 }
 
@@ -2878,11 +3016,14 @@ function setPaused(paused) {
 
 canvas.tabIndex = -1;
 startButton.addEventListener('click', startGame);
+scoreForm.addEventListener('submit', handleScoreSubmit);
+loadLeaderboard(startLeaderboardList, startLeaderboardNote);
 restartButton.addEventListener('click', requestRestart);
 restartConfirmButton.addEventListener('click', restartGame);
 restartCancelButton.addEventListener('click', cancelRestart);
-debugTRexButton.hidden = !SHOW_DEBUG_CONTROLS;
-debugTRexButton.addEventListener('click', toggleTRexesForDebug);
+debugDinosaurButton.hidden = !SHOW_DEBUG_CONTROLS;
+debugDinosaurButton.addEventListener('click', toggleDinosaursForDebug);
+nextLevelButton.addEventListener('click', startNextLevel);
 debugStormButton.hidden = !SHOW_DEBUG_CONTROLS;
 debugStormButton.addEventListener('click', advanceStormForDebug);
 pauseButton.addEventListener('click', togglePause);
@@ -2960,6 +3101,7 @@ function paintPanelSprite(panelCanvas, frame) {
 paintPanelSprite(document.querySelector('#maya-token'), mayaFrames.walk[0]);
 
 const startScene = startChaseScene(document.querySelector('#start-scene'), startOverlay, heroFrames[selectedCharacterId]);
+const winScene = startWinScene(document.querySelector('#win-scene'), winOverlay, heroFrames[selectedCharacterId]);
 createCharacterPicker(characterOptions, {
   characters: CHARACTERS,
   framesById: heroFrames,

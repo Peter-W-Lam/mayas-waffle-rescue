@@ -1,6 +1,6 @@
-// Hand-tuned nudges to the generated OpenStreetMap road geometry, so landmark sprites
-// fit between the streets they sit beside. Kept separate from mapData.js because that
-// file is regenerated from the OSM extracts.
+// Hand-tuned changes to the generated OpenStreetMap road geometry: nudges so landmark
+// sprites fit between the streets they sit beside, and a few added streets. Kept separate
+// from mapData.js because that file is regenerated from the OSM extracts.
 //
 // Each entry moves one road point to a new position everywhere it appears, so every
 // road sharing that point as a junction moves with it and stays connected.
@@ -20,9 +20,26 @@ const ROAD_POINT_MOVES = [
   { from: [1953.5, 736.7], to: [2004, 722] },
 ];
 
+// Streets that aren't in the OpenStreetMap extract, in original map units. Each end sits
+// on the centreline of the street it joins.
+const EXTRA_ROADS = [
+  // Mill Walk: a cut-through just south of the Fulton Cotton Mill Lofts. Boulevard has no
+  // other side street between Decatur Street and Carroll Street, which made that stretch
+  // a trap. Both ends keep clear of the Boulevard and Carroll Street flood zones (see
+  // floodZones.js), and the path dips south to pass under the mill's name label.
+  {
+    name: 'Mill Walk',
+    type: 'residential',
+    width: 44,
+    points: [[362.3, 2030], [590, 2018], [684.4, 1958]],
+  },
+];
+
 const POINT_MATCH_TOLERANCE = 0.05;
 
 export function applyRoadAdjustments(roads) {
+  roads.push(...EXTRA_ROADS.map((road) => ({ ...road, points: road.points.map((point) => [...point]) })));
+
   for (const { from, to } of ROAD_POINT_MOVES) {
     for (const road of roads) {
       road.points.forEach((point, index) => {

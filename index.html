@@ -15,7 +15,7 @@
       <h1 class="visually-hidden">Maya’s Waffle Weather Rescue</h1>
 
       <section class="game-frame" aria-label="Game area">
-        <canvas id="game-canvas" aria-label="A scrolling street map with your hero, Maya, a pursuing T-Rex, and a Waffle House">
+        <canvas id="game-canvas" aria-label="A scrolling street map with your hero, Maya, pursuing dinosaurs, and a Waffle House">
           Your browser does not support HTML canvas.
         </canvas>
         <!-- Touch thumbstick: appears under the finger on phones (see touchStick.js). -->
@@ -78,7 +78,7 @@
         <!-- Top-right buttons. -->
         <div id="hud-controls" class="hud-controls">
           <!-- Temporary debug controls; shown only when SHOW_DEBUG_CONTROLS is true in main.js. -->
-          <button id="debug-t-rex-button" class="debug-button" type="button" aria-pressed="false" hidden>
+          <button id="debug-dinosaur-button" class="debug-button" type="button" aria-pressed="false" hidden>
             🦖 on
           </button>
           <button id="debug-storm-button" class="debug-button" type="button" hidden>⏩ +10%</button>
@@ -130,17 +130,49 @@
             </fieldset>
             <button id="start-button" type="button">Start game</button>
           </div>
+          <!-- Online leaderboard (leaderboard.js); collapsed so the start screen stays short. -->
+          <details class="leaderboard leaderboard--start">
+            <summary class="leaderboard__heading">🏆 Top 10 leaderboard</summary>
+            <ol id="start-leaderboard-list" class="leaderboard__list"></ol>
+            <p id="start-leaderboard-note" class="leaderboard__note"></p>
+          </details>
         </div>
-        <div id="win-overlay" class="win-overlay" role="status" aria-live="assertive" hidden>
+        <!-- Level complete. Stays up until the player presses Next level (see winScene.js for the picture). -->
+        <div id="win-overlay" class="win-overlay level-complete-overlay" role="dialog" aria-modal="true" aria-labelledby="win-title" hidden>
+          <canvas id="win-scene" class="win-scene" aria-hidden="true"></canvas>
           <p id="win-eyebrow" class="win-overlay__eyebrow">Level 1 complete!</p>
-          <p class="win-overlay__title">Maya made it to Waffle House!</p>
+          <p id="win-title" class="win-overlay__title">Congrats, you got Maya to Waffle House!</p>
           <p id="win-score" class="win-overlay__score"></p>
-          <p id="win-next-level">Get ready for the next level…</p>
+          <p id="win-next-level" class="level-complete-overlay__next"></p>
+          <div class="overlay-actions">
+            <button id="next-level-button" class="overlay-button" type="button">Next level</button>
+          </div>
         </div>
-        <div id="game-over-overlay" class="win-overlay game-over-overlay" role="status" aria-live="assertive" hidden>
+        <div id="game-over-overlay" class="win-overlay game-over-overlay" role="dialog" aria-labelledby="game-over-title" hidden>
           <p id="game-over-eyebrow" class="win-overlay__eyebrow">Chomp!</p>
-          <p id="game-over-title" class="win-overlay__title">A T-Rex caught Trevor!</p>
+          <p id="game-over-title" class="win-overlay__title">A dinosaur caught Trevor!</p>
           <p id="game-over-score" class="win-overlay__score"></p>
+          <!-- Leaderboard entry (shown when the run scored points). -->
+          <form id="score-form" class="score-form" hidden>
+            <p class="score-form__heading">Add your score to the leaderboard</p>
+            <div class="score-form__fields">
+              <label class="score-form__field">
+                <span>Name</span>
+                <input id="score-name" name="name" type="text" maxlength="20" autocomplete="nickname" required />
+              </label>
+              <label class="score-form__field score-form__field--wide">
+                <span>Message <span class="score-form__optional">(optional)</span></span>
+                <input id="score-message" name="message" type="text" maxlength="80" autocomplete="off" />
+              </label>
+            </div>
+            <button id="score-submit" class="overlay-button" type="submit">Submit score</button>
+          </form>
+          <p id="score-status" class="score-form__status" aria-live="polite"></p>
+          <section id="game-over-leaderboard" class="leaderboard" aria-labelledby="game-over-leaderboard-heading" hidden>
+            <h2 id="game-over-leaderboard-heading" class="leaderboard__heading">🏆 Top 10</h2>
+            <ol id="game-over-leaderboard-list" class="leaderboard__list"></ol>
+            <p id="game-over-leaderboard-note" class="leaderboard__note"></p>
+          </section>
           <p>Use the restart button to start again from level 1.</p>
         </div>
         <div id="pause-overlay" class="win-overlay pause-overlay" role="status" aria-live="polite" hidden>

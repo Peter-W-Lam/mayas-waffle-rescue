@@ -12,7 +12,7 @@ export const WEATHER_SETTINGS = {
     floodsTurnDeep: false, // false: floods stop at shallow (slow, never impassable)
     shallowSeconds: 12, // time before shallow water turns deep (when floodsTurnDeep)
     shallowSpeedMultiplier: 0.4,
-    tRexBlockedFrom: 'shallow', // or 'deep'
+    dinosaursBlockedFrom: 'shallow', // or 'deep'
     onStormFull: 'final-surge', // or 'lose'
   },
 };

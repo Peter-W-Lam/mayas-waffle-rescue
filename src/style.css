@@ -140,6 +140,33 @@ canvas {
   outline-offset: 4px;
 }
 
+/* Level complete: a pixel-art picture, a smaller title (it's a full sentence) and the
+   Next level button. */
+.level-complete-overlay {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 212, 74, 0.2), transparent 16rem),
+    rgba(15, 38, 33, 0.9);
+  place-content: safe center;
+}
+
+.win-scene {
+  justify-self: center;
+  width: min(100%, 400px);
+  aspect-ratio: 320 / 124;
+  margin-bottom: 12px;
+  image-rendering: pixelated;
+}
+
+.level-complete-overlay .win-overlay__title {
+  font-size: clamp(1.4rem, 3.8vw, 2.5rem);
+  line-height: 1.05;
+}
+
+.level-complete-overlay__next {
+  margin-top: 6px;
+  color: #ffe9a6;
+}
+
 /* The hero picker makes the start screen taller; scroll rather than clip on small frames. */
 .start-overlay {
   overflow-y: auto;
@@ -504,6 +531,178 @@ canvas {
   font-weight: 900;
 }
 
+/* Online leaderboard: the entry form on the game-over screen and the top-10 lists. */
+.game-over-overlay {
+  place-content: safe center;
+}
+
+.score-form {
+  justify-self: center;
+  width: 460px;
+  max-width: 100%;
+  margin-top: 16px;
+}
+
+.score-form[hidden] {
+  display: none;
+}
+
+.score-form__heading {
+  color: #ffd44a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.score-form__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 14px;
+  text-align: left;
+}
+
+.score-form__field {
+  display: grid;
+  flex: 1 1 140px;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.score-form__field--wide {
+  flex-grow: 2;
+}
+
+.score-form__optional {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.score-form__field input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 2px solid rgba(255, 248, 223, 0.35);
+  border-radius: 10px;
+  color: #fff8df;
+  background: rgba(0, 0, 0, 0.28);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.score-form__field input:focus-visible {
+  border-color: #ffd44a;
+  outline: none;
+}
+
+.score-form .overlay-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.win-overlay .score-form__status {
+  margin-top: 10px;
+  min-height: 1.4em;
+  color: #ffe9a6;
+  font-weight: 700;
+}
+
+.leaderboard {
+  justify-self: center;
+  width: 420px;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+  text-align: left;
+}
+
+.leaderboard[hidden] {
+  display: none;
+}
+
+.leaderboard--start {
+  margin-top: 18px;
+}
+
+.leaderboard__heading {
+  margin: 0;
+  color: #ffd44a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+summary.leaderboard__heading {
+  cursor: pointer;
+}
+
+.leaderboard__list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leaderboard__row {
+  display: grid;
+  grid-template-columns: 2.2em 1fr auto auto;
+  gap: 0 10px;
+  align-items: baseline;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.leaderboard__row.is-you {
+  color: #2f2711;
+  background: #ffd44a;
+}
+
+.leaderboard__rank {
+  font-weight: 900;
+  opacity: 0.7;
+}
+
+.leaderboard__name {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard__level {
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.leaderboard__score {
+  font-weight: 900;
+  text-align: right;
+}
+
+.leaderboard__message {
+  grid-column: 2 / -1;
+  font-size: 0.8rem;
+  font-style: italic;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.win-overlay .leaderboard__note {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.leaderboard__note:empty {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .hud-strip {
     max-width: calc(100% - 156px);
@@ -793,6 +992,19 @@ button {
   .start-scene {
     width: min(100%, 260px);
     margin-bottom: 4px;
+  }
+
+  .win-scene {
+    width: min(100%, 220px);
+    margin-bottom: 4px;
+  }
+
+  .level-complete-overlay .win-overlay__title {
+    font-size: 1.3rem;
+  }
+
+  .overlay-actions {
+    margin-top: 10px;
   }
 
   .win-overlay .win-overlay__title {
