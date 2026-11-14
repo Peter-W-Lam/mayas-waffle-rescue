@@ -20,7 +20,9 @@ function lerp(from, to, amount) {
 
 // Linear interpolation across [progress, value] stops.
 function interpolateStops(stops, progress) {
-  if (progress <= stops[0][0]) return stops[0][1];
+  // Strictly before the first stop. At the stop itself the loop below decides, so two
+  // stops at the same progress (rain from the very start) give the later one's value.
+  if (progress < stops[0][0]) return stops[0][1];
   for (let index = 1; index < stops.length; index += 1) {
     const [endProgress, endValue] = stops[index];
     if (progress > endProgress) continue;

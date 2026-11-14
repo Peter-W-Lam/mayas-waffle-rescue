@@ -47,6 +47,10 @@ export function createMusic() {
     isMuted() {
       return mutedByPlayer;
     },
+    // False until the browser has let the track start (it needs a click or key press).
+    isPlaying() {
+      return !audio.paused;
+    },
     toggleMuted() {
       mutedByPlayer = !mutedByPlayer;
       audio.muted = mutedByPlayer || isPriming;

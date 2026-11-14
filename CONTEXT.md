@@ -54,9 +54,9 @@ versions of `main.js` and `mapData.js`.
    "final surge", not a loss.
 
 Controls: arrow keys, or on phones and tablets a floating thumbstick (`touchStick.js`: touch
-anywhere on the map and drag; it snaps to the same 8 directions as the keys). P or Esc pauses, M mutes. Music, Pause and Restart are round buttons in the
+anywhere on the map and drag; it snaps to the same 8 directions as the keys). P or Esc pauses, M mutes. Music, Pause and Restart are square yellow arcade keys with pixel icons (`hudIcons.js`) in the
 top-right corner of the map (Restart asks first mid-run). A thin strip in the top-left shows level,
-waffles, tabs, score, the storm bar and a "Maya with you" tag. `main.js` keeps the hero and edge arrows
+waffles, tabs, score and a "Maya: with you" cell, drawn as the diner's black menu board (there is no storm bar; the ticker reports the weather). `main.js` keeps the hero and edge arrows
 out from under both (`hudRects`).
 
 ## File map (`src/`)
@@ -72,11 +72,11 @@ out from under both (`hudRects`).
 | `weatherSettings.js` | Storm/flood tuning per difficulty (`gentle` only so far) and `ACTIVE_DIFFICULTY`. |
 | `weatherEffects.js` | Screen-space storm tint, vignette and rain particles. Visual only. |
 | `weatherTicker.js` | The bottom-of-screen "WAFL Storm Team 5" news ticker (roundup and alerts). |
-| `sounds.js` | Sound effects for finding Maya and picking up waffles and pop tabs (`public/audio/*.wav`). Loaded at startup, unlocked by the Start button, muted along with the music, and silent if anything fails. |
+| `sounds.js` | Sound effects for finding Maya and picking up waffles and pop tabs (`public/audio/*.wav`), plus the intro's thunder, looping rain and roar (`thunder.mp3`, `rain_loop.mp3`, `roar.mp3`). Loaded at startup, unlocked by the Start buttons, muted along with the music, and silent if anything fails. `playSound(name, options)` can loop, fade in, start partway into a file, and returns `{ stop(fadeSeconds) }`. |
 | `leaderboard.js` | Online top-10 leaderboard in a Supabase `scores` table (plain `fetch`, no library). Holds the public project URL and publishable key; the table's own rules limit visitors to reading and adding. Calls time out after 5s and the game carries on without them. |
 | `startScene.js` | Looping chase animation on the start screen (shown through the diner's window). |
 | `howToPlay.js`, `howToPlay/` | The How to play guide: a `<dialog>` on the start screen that steps through five screenshots with a line or two each (the `STEPS` list). Back/Next buttons or the arrow keys move through it; Esc, the × or a click outside closes it. The pictures are 960×540 crops of the real game, staged by hand while paused, so retake them if the map or sprites change enough to look wrong. |
-| `introScene.js`, `intro.css` | The intro cutscene, played when the start screen's **Start with intro** button is pressed (**Start game** skips it): the hero on the couch at home in a brightly lit room, rain starting, the TV news saying power is failing and Waffle House is the only place with power, the apartment's power cutting out (the room and TV go dark), Maya's empty bed, a roar, and the hero setting out; it ends on the caption "Find Maya and bring her safely to Waffle House." A `say` step with `speaker: 'tv'` is spoken by the TV. The story is the `INTRO_SCRIPT` step list at the top; the module builds its own overlay and dialogue box. Skip button or Esc skips; Enter, Space, click or tap moves the dialogue on. The game stays frozen behind it (`hasStarted` is false) and the music starts when it ends. The roar is visual only until `roar.wav` is added (see the commented line in `sounds.js`). |
+| `introScene.js`, `intro.css` | The intro cutscene, played when the start screen's **Start with intro** button is pressed (**Start game** skips it): the hero on the couch at home in a brightly lit room, rain starting, the TV news saying power is failing and Waffle House is the only place with power, the apartment's power cutting out (the room and TV go dark), Maya's empty bed, a roar, and the hero setting out; it ends on the caption "Find Maya and bring her safely to Waffle House." A `say` step with `speaker: 'tv'` is spoken by the TV. The story is the `INTRO_SCRIPT` step list at the top; the module builds its own overlay and dialogue box. Skip button or Esc skips; Enter, Space, click or tap moves the dialogue on. The game stays frozen behind it (`hasStarted` is false) and the music starts when it ends. It opens on black with thunder; a second later the picture and the rain sound fade in, and the roar plays with its visual effects. How each file is played (start offset, volume, loop) is `INTRO_SOUNDS`; anything still playing fades out when the intro ends or is skipped. |
 | `dinerScreens.js`, `diner.css` | The start, level-complete and game-over screens, drawn as the inside of a Waffle House: letter tiles from the sign for titles (`setTiles`), the score as a guest check that prints line by line (`printCheck`), a menu board, and sprites on a checkerboard floor (`createSprite`). `main.js` decides what each screen says. |
 | `characters.js`, `characterPicker.js` | Playable heroes and the start-screen picker. |
 | `neighborhoodCanopy.js`, `buildingData.js` | The blocks between streets: real OSM buildings as muted rooftops under seeded tree canopy. Background only; painted once into a half-size cached ground layer with the lawn, parks and roads (`createGroundLayer` in `main.js`), so it shares the sprites' 2× pixel grid. `buildingData.js` is generated by `tools/extract-buildings.mjs`. |
@@ -84,7 +84,7 @@ out from under both (`hudRects`).
 | `*Sprite.js` | Pixel-art sprites: Trevor, Peter, Maya (walk/sniff/sit), T-Rex, velociraptor, Allosaurus, Waffle House, Krog Street Market, Inman Motor Works (Trevor's home), Fulton Cotton Mill Lofts, Inman Park sign, MARTA station, soda tab. |
 | `krogStreetTunnelSprites.js` | Painted wall strip tiled along both sides of the Krog Street Tunnel road (`drawKrogStreetTunnel`). Also has an unused entrance sprite. |
 | `touchStick.js` | Floating thumbstick for touch screens; ignores the mouse. |
-| `style.css` | Styling for the game frame, the pause and restart prompts, the corner HUD (stats strip and buttons), ticker, and debug buttons. The three full screens are in `diner.css`. |
+| `style.css` | Styling for the game frame, the pause and restart prompts, the corner HUD (stats strip and buttons), and ticker. The three full screens are in `diner.css`. |
 
 Also: `index.html` (layout and overlays), `data/` (raw OSM extracts and a license
 note), `tools/` (data extraction scripts).
@@ -177,8 +177,9 @@ note), `tools/` (data extraction scripts).
 
 ### Storm clock and weather (`weatherSettings.js`)
 - The clock fills over `stormDurationSeconds` (90), 1.5× faster once Maya is following.
-- Phases: clear, then cloudy (2%), raining (6%), streets flooding (14%), and "storm has
-  arrived" (100%).
+- Phases: raining from the very start (`cloudsStartAt` and `rainStartsAt` are both 0, so
+  the clear and cloudy phases are skipped; raise them to bring those back), streets
+  flooding (14%), and "storm has arrived" (100%).
 - Each game floods `floodZoneCount` (5) random zones out of the 11. Their start times
   are spread across `floodWindow` ([0.14, 0.7]) with some randomness.
 - Zone stages: **dry**, then **warning** (`warningSeconds`; puddles and a "!"), then
@@ -228,11 +229,8 @@ later, such as Trevor, disappear.
 - **Free-tier pause:** Supabase pauses an idle free project after about a week; the lists then say "Leaderboard unavailable" until it's restored in the dashboard.
 - Names and messages are always rendered as text, never HTML. The keyboard shortcuts (P, M, arrows) ignore keys typed into the form.
 
-## Debug controls (temporary; turn off before gifting)
+## Debug controls
 In `main.js`:
-- `SHOW_DEBUG_CONTROLS = true` shows two buttons under the map:
-  - **🦖 on/off.** Hides and freezes the dinosaurs.
-  - **⏩ Storm +10%.** Moves the storm clock forward.
 - `SHOW_DINOSAUR_TRACKERS = true` adds edge-of-screen arrows for off-screen dinosaurs.
 - URL parameters (always on; harmless to leave in):
   - `?level=5` starts every run at that level.

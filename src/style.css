@@ -116,169 +116,158 @@ canvas {
   z-index: 3;
 }
 
-/* Top-left stats strip. main.js keeps the hero and edge arrows out from under it. */
+/* Top-left scoreboard, drawn as the diner's menu board: black, in a wooden frame, with a
+   small yellow label over each number. main.js keeps the hero and edge arrows out from
+   under it. */
 .hud-strip {
   position: absolute;
   top: 10px;
   left: 10px;
   display: flex;
-  max-width: calc(100% - 200px);
-  min-height: 36px;
-  align-items: center;
-  gap: 4px 14px;
+  max-width: calc(100% - 170px);
   flex-wrap: wrap;
-  padding: 6px 14px;
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  color: #fff8df;
-  background: rgba(15, 38, 33, 0.78);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
-  font-size: 0.86rem;
-  font-weight: 800;
-  line-height: 1.2;
+  border: 5px solid #7a4a2b;
+  color: #fff;
+  background: #1c1a17;
+  box-shadow: 4px 5px 0 rgba(42, 29, 23, 0.3);
+  font-family: Silkscreen, ui-monospace, monospace;
+  line-height: 1.1;
+  text-transform: uppercase;
   white-space: nowrap;
-  transition: background 200ms ease, border-color 200ms ease;
 }
 
 .hud-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 6px 12px 7px;
+  border-left: 2px dashed rgba(255, 255, 255, 0.22);
 }
 
-.hud-stat strong {
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
+.hud-stat:first-child {
+  border-left: 0;
 }
 
 .hud-stat__label {
   color: #ffd44a;
-  font-size: 0.72rem;
-  font-weight: 900;
+  font-size: 10px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.hud-stat__score {
-  display: inline-block;
-  min-width: 3ch;
-}
-
-.hud-storm__bar {
-  display: block;
-  width: 72px;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.hud-storm__fill {
-  display: block;
-  width: 0;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #8fb8d8, #3f6fa0 60%, #2c3e66);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-}
-
-.hud-storm__phase {
-  color: #c9d8d2;
-  font-size: 0.78rem;
-}
-
-.hud-rescue {
-  display: inline-flex;
+.hud-stat__value {
+  display: flex;
+  min-height: 22px;
   align-items: center;
-  gap: 4px;
-  padding: 1px 10px 1px 4px;
-  border-radius: 999px;
-  color: #10402f;
-  background: #ccebdc;
-  font-size: 0.78rem;
-  font-weight: 900;
+  gap: 6px;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-stat__value strong {
+  display: inline-block;
+}
+
+/* Pixel sprites (waffle, soda tab, Maya), painted by main.js and scaled up crisply. */
+.hud-stat__icon {
+  display: block;
+  width: auto;
+  height: 18px;
+  image-rendering: pixelated;
+}
+
+/* A number that just went up pops once (main.js adds is-bumped). */
+.hud-strip .is-bumped {
+  animation: hud-bump 0.3s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+@keyframes hud-bump {
+  from {
+    color: #ffd44a;
+    scale: 1.3;
+  }
+}
+
+.hud-rescue .hud-stat__value {
+  color: #ccebdc;
+  font-size: 12px;
 }
 
 .hud-rescue[hidden] {
   display: none;
 }
 
-/* Maya's standing sprite, drawn into this canvas at load and scaled up crisply. */
-.hud-rescue__token {
-  display: block;
-  width: auto;
-  height: 22px;
-  image-rendering: pixelated;
-}
-
 .hud-strip.is-danger {
-  border-color: #ff9b9b;
-  background: rgba(123, 32, 41, 0.86);
+  border-color: #d63a2f;
   animation: hud-danger-flash 0.45s ease-in-out 3;
 }
 
 @keyframes hud-danger-flash {
   50% {
-    background: rgba(214, 58, 47, 0.95);
+    background: #7b2029;
   }
 }
 
-/* Top-right buttons. */
+/* Top-right buttons: chunky arcade keys in the sign's yellow, with pixel icons painted by
+   main.js (hudIcons.js). */
 .hud-controls {
   position: absolute;
   top: 10px;
   right: 10px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 
 .hud-button {
   display: grid;
-  width: 40px;
+  width: 42px;
   height: 40px;
   padding: 0;
   place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  border-radius: 50%;
-  color: #fff8df;
-  background: rgba(15, 38, 33, 0.78);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  border: 3px solid #1c1a17;
+  border-radius: 0;
+  background: #ffd44a;
+  box-shadow: 0 4px 0 #b98e08;
   cursor: pointer;
-  transition: transform 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.hud-button svg {
-  width: 20px;
-  height: 20px;
+.hud-button canvas {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
 }
 
 .hud-button:hover {
-  color: #2f2711;
-  background: #ffd44a;
-  transform: translateY(-1px);
+  background: #ffe07a;
 }
 
+/* The key goes down. */
 .hud-button:active {
-  transform: translateY(1px);
+  box-shadow: 0 1px 0 #b98e08;
+  translate: 0 3px;
 }
 
 .hud-button:focus-visible {
-  outline: 3px solid #ffffff;
+  outline: 3px solid #d63a2f;
   outline-offset: 3px;
 }
 
 .hud-button:disabled {
-  opacity: 0.45;
+  background: #ffd44a;
+  box-shadow: 0 4px 0 #b98e08;
   cursor: not-allowed;
-  transform: none;
-  color: #fff8df;
-  background: rgba(15, 38, 33, 0.78);
+  opacity: 0.5;
+  translate: none;
 }
 
-/* Two-state buttons (pause/play, music on/off) swap icons with data-state. */
+/* Music off: the key goes dull. */
+#music-button[data-state='off'] {
+  background: #f5ebd4;
+  box-shadow: 0 4px 0 #b9b3a5;
+}
+
+/* Two-state keys (pause/play, music on/off) swap icons with data-state. */
 .hud-button .icon-off,
 .hud-button[data-state='off'] .icon-on {
   display: none;
@@ -286,6 +275,18 @@ canvas {
 
 .hud-button[data-state='off'] .icon-off {
   display: block;
+}
+
+/* The music key stays in reach on the start screen and during the intro, which otherwise
+   cover the corner HUD. Pause and Restart mean nothing there, so they step aside. */
+.game-frame:has(.diner--start:not([hidden])) .hud-controls,
+.game-frame:has(.intro-overlay:not([hidden])) .hud-controls {
+  z-index: 11;
+}
+
+.game-frame:has(.diner--start:not([hidden])) .hud-controls > :not(#music-button),
+.game-frame:has(.intro-overlay:not([hidden])) .hud-controls > :not(#music-button) {
+  display: none;
 }
 
 /* Restart prompt buttons. */
@@ -355,44 +356,51 @@ canvas {
 @media (max-width: 640px) {
   .hud-strip {
     max-width: calc(100% - 156px);
-    gap: 2px 10px;
-    padding: 5px 10px;
-    font-size: 0.8rem;
+    border-width: 4px;
   }
 
-  .hud-storm__phase,
+  .hud-stat {
+    padding: 5px 7px;
+  }
+
+  /* No room for the labels: the pictures say waffles and tabs, the level gets "Lv" and
+     the score turns yellow. */
   .hud-stat__label,
   #rescue-state {
     display: none;
   }
 
-  .hud-storm__bar {
-    width: 48px;
+  .hud-stat__value {
+    gap: 4px;
+    font-size: 16px;
   }
 
-  .hud-rescue {
-    padding-right: 4px;
+  .hud-stat__icon {
+    height: 15px;
   }
 
-  .hud-strip {
-    border-radius: 18px;
+  #level-number::before {
+    color: #ffd44a;
+    content: 'Lv';
   }
 
-  /* Keep the three round buttons on one row; debug buttons wrap underneath. */
+  #score {
+    color: #ffd44a;
+  }
+
   .hud-controls {
-    max-width: 124px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
     gap: 6px;
   }
 
-  .hud-controls .debug-button {
-    order: 1;
+  .hud-button {
+    width: 38px;
+    height: 36px;
   }
 
-  .hud-button {
-    width: 36px;
-    height: 36px;
+  /* On the start screen the title's tiles keep clear of the music key in the corner. */
+  .diner--start .diner__sign {
+    padding-right: 56px;
+    padding-left: 56px;
   }
 
   .weather-ticker.is-visible ~ .map-credit {
@@ -401,39 +409,14 @@ canvas {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hud-strip.is-danger {
+  .hud-strip.is-danger,
+  .hud-strip .is-bumped {
     animation: none;
   }
 
   .map-credit {
     transition: none;
   }
-}
-
-/* Temporary debug buttons, in the top-right row when SHOW_DEBUG_CONTROLS is on. */
-.debug-button {
-  flex: none;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 2px dashed #b6382e;
-  border-radius: 999px;
-  color: #7b2029;
-  background: #fff4f2;
-  font-size: 0.78rem;
-  font-weight: 900;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.debug-button[aria-pressed='true'] {
-  border-style: solid;
-  color: #ffffff;
-  background: #b6382e;
-}
-
-.debug-button:focus-visible {
-  outline: 4px solid #ffffff;
-  outline-offset: 4px;
 }
 
 /* main.js sizes the canvas's pixels to match this box. Touches on it drive the thumbstick,

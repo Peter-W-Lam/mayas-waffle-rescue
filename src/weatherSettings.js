@@ -4,8 +4,10 @@ export const WEATHER_SETTINGS = {
   gentle: {
     stormDurationSeconds: 90,
     rescuedClockMultiplier: 1.5, // clock speeds up once Maya is following
-    cloudsStartAt: 0.02,
-    rainStartsAt: 0.06,
+    // Both 0: it's already raining when a level starts. Raise them to bring back an
+    // opening spell of clear skies, then clouds, before the rain.
+    cloudsStartAt: 0,
+    rainStartsAt: 0,
     floodWindow: [0.14, 0.7], // share of the clock when zones flood
     floodZoneCount: 5, // picked at random from the candidate zones
     warningSeconds: 5,

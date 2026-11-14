@@ -36,79 +36,54 @@
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>
         </p>
 
-        <!-- Top-left stats strip. main.js keeps the hero and edge arrows out from under it. -->
+        <!-- Top-left scoreboard, drawn as the diner's menu board. main.js keeps the hero and
+             edge arrows out from under it. -->
         <div id="hud-strip" class="hud-strip" role="group" aria-label="Game stats">
-          <span class="hud-stat" title="Level">
-            <span class="hud-stat__label">Lv</span> <strong id="level-number">1</strong>
+          <span class="hud-stat">
+            <span class="hud-stat__label">Level</span>
+            <strong id="level-number" class="hud-stat__value">1</strong>
           </span>
-          <span class="hud-stat" title="Waffles">
-            <span aria-hidden="true">🧇</span><span class="visually-hidden">Waffles</span>
-            <strong id="waffle-count">0</strong>
-          </span>
-          <span class="hud-stat" title="Soda tabs">
-            <span aria-hidden="true">🥫</span><span class="visually-hidden">Soda tabs</span>
-            <strong id="tab-count">0</strong>
-          </span>
-          <span class="hud-stat" title="Score">
-            <span aria-hidden="true">★</span><span class="visually-hidden">Score</span>
-            <strong id="score" class="hud-stat__score">0</strong>
-          </span>
-          <span class="hud-stat hud-storm" title="Storm">
-            <span aria-hidden="true">🌧️</span>
-            <span
-              id="storm-bar"
-              class="hud-storm__bar"
-              role="progressbar"
-              aria-label="Storm progress"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow="0"
-            >
-              <span id="storm-fill" class="hud-storm__fill"></span>
+          <span class="hud-stat">
+            <span class="hud-stat__label">Waffles</span>
+            <span class="hud-stat__value">
+              <canvas id="waffle-token" class="hud-stat__icon" aria-hidden="true"></canvas>
+              <strong id="waffle-count">0</strong>
             </span>
-            <strong id="storm-phase" class="hud-storm__phase">Clear skies</strong>
+          </span>
+          <span class="hud-stat">
+            <span class="hud-stat__label">Tabs</span>
+            <span class="hud-stat__value">
+              <canvas id="tab-token" class="hud-stat__icon" aria-hidden="true"></canvas>
+              <strong id="tab-count">0</strong>
+            </span>
+          </span>
+          <span class="hud-stat">
+            <span class="hud-stat__label">Score</span>
+            <strong id="score" class="hud-stat__value">0</strong>
           </span>
           <!-- Shown once Maya is following the hero. -->
-          <span id="rescue-tag" class="hud-rescue" hidden>
-            <canvas id="maya-token" class="hud-rescue__token" aria-hidden="true"></canvas>
-            <span id="rescue-state" aria-live="polite">Maya with you</span>
+          <span id="rescue-tag" class="hud-stat hud-rescue" hidden>
+            <span class="hud-stat__label">Maya</span>
+            <span class="hud-stat__value">
+              <canvas id="maya-token" class="hud-stat__icon" aria-hidden="true"></canvas>
+              <span id="rescue-state" aria-live="polite">With you</span>
+            </span>
           </span>
         </div>
 
-        <!-- Top-right buttons. -->
+        <!-- Top-right buttons, as chunky arcade keys. main.js paints their pixel icons
+             (hudIcons.js). The music key also shows on the start screen and in the intro. -->
         <div id="hud-controls" class="hud-controls">
-          <!-- Temporary debug controls; shown only when SHOW_DEBUG_CONTROLS is true in main.js. -->
-          <button id="debug-dinosaur-button" class="debug-button" type="button" aria-pressed="false" hidden>
-            🦖 on
-          </button>
-          <button id="debug-storm-button" class="debug-button" type="button" hidden>⏩ +10%</button>
           <button id="music-button" class="hud-button" type="button" aria-pressed="true" aria-label="Music on" title="Music (M)">
-            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 17V5l11-2v12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" />
-              <circle cx="6.5" cy="17.5" r="3" fill="currentColor" />
-              <circle cx="17.5" cy="15.5" r="3" fill="currentColor" />
-            </svg>
-            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 17V5l11-2v12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" />
-              <circle cx="6.5" cy="17.5" r="3" fill="currentColor" />
-              <circle cx="17.5" cy="15.5" r="3" fill="currentColor" />
-              <path d="M3 3l18 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
-            </svg>
+            <canvas class="icon-on" data-icon="music" aria-hidden="true"></canvas>
+            <canvas class="icon-off" data-icon="musicOff" aria-hidden="true"></canvas>
           </button>
           <button id="pause-button" class="hud-button" type="button" aria-label="Pause game" title="Pause (P or Esc)">
-            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="6" y="4.5" width="4.2" height="15" rx="1.2" fill="currentColor" />
-              <rect x="13.8" y="4.5" width="4.2" height="15" rx="1.2" fill="currentColor" />
-            </svg>
-            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7.5 4.5v15l12-7.5z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-            </svg>
+            <canvas class="icon-on" data-icon="pause" aria-hidden="true"></canvas>
+            <canvas class="icon-off" data-icon="play" aria-hidden="true"></canvas>
           </button>
           <button id="restart-button" class="hud-button" type="button" aria-label="Restart game" title="Restart">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
-              <path d="M19.8 3.5v5h-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+            <canvas data-icon="restart" aria-hidden="true"></canvas>
           </button>
         </div>
         <!-- Screen-reader copy of the game's progress messages. -->

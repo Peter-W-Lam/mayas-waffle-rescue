@@ -129,10 +129,11 @@
   display: none;
 }
 
+/* Sits just left of the music key, which stays in the corner during the intro. */
 .intro-skip {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 10px;
+  right: 64px;
   z-index: 1;
   min-height: 40px;
   padding: 0 16px;
@@ -193,8 +194,8 @@
   }
 
   .intro-skip {
-    top: 6px;
-    right: 6px;
+    top: 10px;
+    right: 58px;
     min-height: 34px;
   }
 }

@@ -29,6 +29,18 @@ const EMOTE_DURATION = 1.5;
 const STAND_UP_HOP_DURATION = 0.25;
 const RAIN_EASE_PER_SECOND = 0.35; // how fast the rain builds toward the level a step asks for
 
+// How each sound file is played (see playSound in sounds.js). The thunder and roar files
+// open with a stretch of silence, which `offset` skips so they land on cue; the volumes
+// even out how loud the three recordings are.
+const INTRO_SOUNDS = {
+  thunder: { offset: 0.5, volume: 0.8 },
+  rain: { loop: true, fadeIn: 2.5, volume: 2.5, whenReady: true },
+  roar: { offset: 1, volume: 2 },
+};
+// When the intro ends or is skipped, whatever is still playing fades out over this long.
+const SOUND_FADE_OUT_SECONDS = 0.6;
+const RAIN_FADE_OUT_SECONDS = 1.5;
+
 // Roar timings, in seconds after the roar starts.
 const ROAR_DURATION = 2.4;
 const ROAR_SHAKE_DURATION = 0.9;
@@ -47,10 +59,14 @@ const ROAR_LIGHTNING = [
 // happens at once (the rain keeps building and the roar keeps playing in the background
 // while later steps run).
 const INTRO_SCRIPT = [
-  { do: 'fade', to: 0, seconds: 1.2 },
-  { do: 'wait', seconds: 1.6 },
+  // Opens on black with a clap of thunder. A second later the picture fades in, and the
+  // sound of the rain fades in with it.
+  { do: 'sound', name: 'thunder' },
+  { do: 'wait', seconds: 1 },
   { do: 'rain', level: 0.35 },
-  { do: 'wait', seconds: 1.4 },
+  { do: 'sound', name: 'rain' },
+  { do: 'fade', to: 0, seconds: 1.5 },
+  { do: 'wait', seconds: 2.4 },
   { do: 'face', direction: -1 }, // toward the window
   { do: 'emote', mark: '?' },
   { do: 'wait', seconds: 0.7 },
@@ -382,6 +398,20 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     announcer.textContent = text;
   }
 
+  // ---- Sound ----
+
+  // Sounds this intro has started, so they can be faded out when it ends or is skipped.
+  const playingSounds = [];
+
+  function startSound(name) {
+    const settings = INTRO_SOUNDS[name];
+    playingSounds.push({ sound: playSound(name, settings), loops: Boolean(settings.loop) });
+  }
+
+  function fadeOutSounds() {
+    for (const { sound, loops } of playingSounds) sound.stop(loops ? RAIN_FADE_OUT_SECONDS : SOUND_FADE_OUT_SECONDS);
+  }
+
   // ---- Steps ----
   // Each returns nothing (done immediately) or { update(deltaTime) -> true when done, press() }.
 
@@ -445,10 +475,14 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
       }
     },
 
+    // Plays one of INTRO_SOUNDS and carries straight on; it doesn't wait for the sound.
+    sound({ name }) {
+      startSound(name);
+    },
+
     roar() {
       scene.roarTime = 0;
-      // Silent until a 'roar' file is added to SOUND_FILES in sounds.js.
-      playSound('roar');
+      startSound('roar');
     },
 
     caption({ text }) {
@@ -1036,6 +1070,7 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     clearDialogue();
     announcer.textContent = '';
     overlay.hidden = true;
+    fadeOutSounds();
     onDone();
   }
 

@@ -35,6 +35,7 @@ import { MARTA_LINE } from './martaLine.js';
 import { createMarta, drawMartaTracks, drawMartaTrains, updateMarta } from './marta.js';
 import { startChaseScene } from './startScene.js';
 import { playIntro } from './introScene.js';
+import { createHudIcon } from './hudIcons.js';
 import { createTouchStick } from './touchStick.js';
 import { createSodaTabSprite } from './sodaTabSprite.js';
 import { createNeighborhoodCanopy, drawNeighborhoodCanopy } from './neighborhoodCanopy.js';
@@ -55,8 +56,6 @@ const restartButton = document.querySelector('#restart-button');
 const pauseButton = document.querySelector('#pause-button');
 const musicButton = document.querySelector('#music-button');
 const music = createMusic();
-const debugDinosaurButton = document.querySelector('#debug-dinosaur-button');
-const debugStormButton = document.querySelector('#debug-storm-button');
 const weatherTickerElement = document.querySelector('#weather-ticker');
 const weatherTicker = createWeatherTicker({
   root: weatherTickerElement,
@@ -91,9 +90,6 @@ const gameOverDinosaurCanvas = document.querySelector('#game-over-dinosaur');
 const playAgainButton = document.querySelector('#play-again-button');
 const nextLevelButton = document.querySelector('#next-level-button');
 const winScoreText = document.querySelector('#win-score');
-const stormPhaseText = document.querySelector('#storm-phase');
-const stormBar = document.querySelector('#storm-bar');
-const stormFill = document.querySelector('#storm-fill');
 const gameOverEyebrow = document.querySelector('#game-over-eyebrow');
 const gameOverTitle = document.querySelector('#game-over-title');
 const winOverlay = document.querySelector('#win-overlay');
@@ -187,26 +183,23 @@ if (URL_PARAMETERS.has('dinosaur') && !FORCED_SPECIES_ID) {
   console.warn(`Unknown ?dinosaur= value. Try: ${Object.keys(DINOSAUR_SPECIES).join(', ')}.`);
 }
 const STORM_PHASES = [
-  { id: 'clear', label: 'Clear skies', startsAt: 0 },
-  { id: 'cloudy', label: 'Clouds rolling in', startsAt: WEATHER.cloudsStartAt },
+  { id: 'clear', startsAt: 0 },
+  { id: 'cloudy', startsAt: WEATHER.cloudsStartAt },
   {
     id: 'rain',
-    label: 'Raining',
     startsAt: WEATHER.rainStartsAt,
     tickerLevel: 'alert',
     message: 'Rain moving into Inman Park and Cabbagetown',
   },
   {
     id: 'flooding',
-    label: 'Streets flooding',
     startsAt: WEATHER.floodWindow[0],
     tickerLevel: 'flood',
     message: 'Heavy rain — flash flooding possible on low-lying streets',
   },
-  { id: 'full', label: 'Storm has arrived', startsAt: 1 },
+  { id: 'full', startsAt: 1 },
 ];
 const SHOW_DINOSAUR_TRACKERS = false; // debug: edge-of-screen arrows for off-screen dinosaurs
-const SHOW_DEBUG_CONTROLS = true; // temporary: set to false to hide the debug buttons
 const TRACKER_EDGE_PADDING = 30;
 const ROAD_FORGIVENESS = 7;
 const ROAD_MAGNET_SPEED = 24;
@@ -340,7 +333,6 @@ let playerTrail = [];
 let isPaused = false;
 let hasStarted = false;
 let shouldResetOnStart = false;
-let dinosaursDisabled = false; // debug toggle; survives restarts
 
 function closestPointOnSegment(x, y, start, end) {
   const segmentX = end[0] - start[0];
@@ -860,12 +852,22 @@ function createPickups() {
   return pickups;
 }
 
+// Sets a number on the scoreboard. One that changed pops once (.is-bumped in style.css).
+function setHudNumber(numberElement, value) {
+  const text = String(value);
+  if (numberElement.textContent === text) return;
+  numberElement.textContent = text;
+  numberElement.classList.remove('is-bumped');
+  void numberElement.offsetWidth; // lets the animation start over
+  numberElement.classList.add('is-bumped');
+}
+
 function updateScorePanel() {
   const { waffle, tab } = gameState.collected;
-  waffleCountText.textContent = waffle;
-  tabCountText.textContent = tab;
-  scoreText.textContent = gameState.score;
-  levelText.textContent = gameState.level;
+  setHudNumber(waffleCountText, waffle);
+  setHudNumber(tabCountText, tab);
+  setHudNumber(scoreText, gameState.score);
+  setHudNumber(levelText, gameState.level);
   winScoreText.textContent = `Waffles: ${waffle} · Soda tabs: ${tab} · Score: ${gameState.score}`;
 }
 
@@ -873,19 +875,12 @@ function getStormPhase(progress) {
   return STORM_PHASES.reduce((current, phase) => (progress >= phase.startsAt ? phase : current));
 }
 
-function updateStormPanel() {
-  const percent = Math.round(gameState.storm.progress * 100);
-  stormPhaseText.textContent = getStormPhase(gameState.storm.progress).label;
-  stormFill.style.width = `${percent}%`;
-  stormBar.setAttribute('aria-valuenow', String(percent));
-}
-
-// The stats strip shows a "Maya with you" tag while she follows the hero, and flashes
-// red when the run ends.
+// The scoreboard gains a "Maya: with you" cell while she follows the hero, and flashes red
+// when the run ends.
 function updateRescuePanel() {
   const showTag = gameState.maya.following && gameState.status !== 'game-over';
   rescueTag.hidden = !showTag;
-  rescueStateText.textContent = gameState.status === 'won' ? 'Safe at Waffle House!' : 'Maya with you';
+  rescueStateText.textContent = gameState.status === 'won' ? 'Safe!' : 'With you';
   hudStrip.classList.toggle('is-danger', gameState.status === 'game-over');
 }
 
@@ -956,7 +951,6 @@ function resetGameState({ level = START_LEVEL, score = 0, collected = { waffle: 
     : 'Ready — press Start Game to begin.';
   updateRescuePanel();
   updateScorePanel();
-  updateStormPanel();
   weatherTicker.reset();
 }
 
@@ -2481,7 +2475,6 @@ function updateStorm(deltaTime) {
   if (gameState.status === 'won' || gameState.status === 'game-over') return;
 
   const storm = gameState.storm;
-  const previousPercent = Math.round(storm.progress * 100);
   if (storm.progress < 1) {
     const clockSpeed = gameState.maya.following ? WEATHER.rescuedClockMultiplier : 1;
     const stormSeconds = WEATHER.stormDurationSeconds * gameState.levelSettings.stormLengthRatio;
@@ -2489,12 +2482,10 @@ function updateStorm(deltaTime) {
   }
 
   const phase = getStormPhase(storm.progress);
-  const phaseChanged = phase.id !== storm.phase;
-  if (phaseChanged) {
+  if (phase.id !== storm.phase) {
     storm.phase = phase.id;
     if (phase.message) weatherTicker.alert(phase.tickerLevel, phase.message);
   }
-  if (phaseChanged || Math.round(storm.progress * 100) !== previousPercent) updateStormPanel();
 
   if (storm.progress < 1 || storm.finalSurge) return;
 
@@ -2934,7 +2925,7 @@ function drawTrackers() {
   } else {
     drawEdgeTracker(gameState.maya, 'M', '#e94f91', 0, tickerInset);
   }
-  if (dinosaursDisabled || !SHOW_DINOSAUR_TRACKERS) return;
+  if (!SHOW_DINOSAUR_TRACKERS) return;
   gameState.dinosaurs.forEach((dinosaur, index) => {
     const laneOffset = (index - (gameState.dinosaurs.length - 1) / 2) * 22;
     drawEdgeTracker(dinosaur, `${dinosaur.species.name[0]}${dinosaur.id}`, '#b6382e', laneOffset, tickerInset);
@@ -2955,7 +2946,7 @@ function drawGame() {
   gameState.pickups.forEach(drawPickup);
   drawPickupPopups();
   drawFloodMarkers();
-  if (!dinosaursDisabled) gameState.dinosaurs.forEach(drawDinosaur);
+  gameState.dinosaurs.forEach(drawDinosaur);
   drawWadingRipples(gameState.maya);
   drawMaya();
   drawWadingRipples(gameState.player);
@@ -2975,7 +2966,7 @@ function gameLoop(timestamp) {
   if (hasStarted && !isPaused) {
     updatePlayer(deltaTime);
     updateMaya(deltaTime);
-    if (!dinosaursDisabled) updateDinosaurs(deltaTime);
+    updateDinosaurs(deltaTime);
     updatePickups();
     updateMarta(marta, deltaTime);
     updateStorm(deltaTime);
@@ -3078,6 +3069,7 @@ function restartGame() {
   updatePauseButton();
   statusText.textContent = 'Ready — press Start Game to begin a new rescue.';
   rescueTag.hidden = true;
+  music.play(); // back on the start screen, where the music plays (it may have been paused)
   hudStrip.classList.remove('is-danger');
   drawGame();
 }
@@ -3115,9 +3107,10 @@ function startGame() {
 
 function startGameWithIntro() {
   if (isIntroPlaying) return;
-  // Sound has to be switched on from inside the click, even though the music waits for
-  // the intro to end.
+  // The start screen's music stops for the intro and comes back when the run begins.
+  // Sound has to be switched on from inside the click for that to work later.
   unlockSounds();
+  music.pause();
   music.prime();
   isIntroPlaying = true;
   startOverlay.hidden = true;
@@ -3154,23 +3147,6 @@ function beginRun() {
   canvas.focus();
 }
 
-// Debug only: jumps the storm clock ahead 10% to preview rain, floods and the surge.
-// Phase changes, flood triggers and the surge all follow on the next frame.
-function advanceStormForDebug() {
-  if (!hasStarted || gameState.status === 'won' || gameState.status === 'game-over') return;
-  gameState.storm.progress = Math.min(1, gameState.storm.progress + 0.1);
-  updateStormPanel();
-  canvas.focus();
-}
-
-// Debug only: freezes and hides the dinosaurs so the map can be explored safely.
-function toggleDinosaursForDebug() {
-  dinosaursDisabled = !dinosaursDisabled;
-  debugDinosaurButton.setAttribute('aria-pressed', String(dinosaursDisabled));
-  debugDinosaurButton.textContent = dinosaursDisabled ? '🦖 off' : '🦖 on';
-  canvas.focus();
-}
-
 // The music button mutes the sound effects too. Runs at load and on every toggle.
 function updateMusicButton() {
   const muted = music.isMuted();
@@ -3181,8 +3157,25 @@ function updateMusicButton() {
 }
 
 function toggleMusic() {
-  music.toggleMuted();
+  // On the start screen the browser may not have let the music start yet (see
+  // startMenuMusic). Then the first press starts it instead of muting it.
+  const waitingToStart = !hasStarted && !isIntroPlaying && !music.isMuted() && !music.isPlaying();
+  if (waitingToStart) music.play();
+  else music.toggleMuted();
   updateMusicButton();
+}
+
+// The music plays on the start screen too. Browsers only let sound start after a click or
+// key press, so this is tried when the page opens and again on each one while the start
+// screen is up. The music key, M, and "Start with intro" are left out: the first two have
+// their own say in toggleMusic, and the intro wants quiet.
+function startMenuMusic(event) {
+  if (hasStarted || isIntroPlaying) return;
+  if (event) {
+    if (musicButton.contains(event.target) || startIntroButton.contains(event.target)) return;
+    if (event.key?.toLowerCase() === 'm') return;
+  }
+  music.play();
 }
 
 // The pause button shows a pause icon while playing and a play icon while paused.
@@ -3220,18 +3213,17 @@ loadLeaderboard(startLeaderboardList, startLeaderboardNote);
 restartButton.addEventListener('click', requestRestart);
 restartConfirmButton.addEventListener('click', restartGame);
 restartCancelButton.addEventListener('click', cancelRestart);
-debugDinosaurButton.hidden = !SHOW_DEBUG_CONTROLS;
-debugDinosaurButton.addEventListener('click', toggleDinosaursForDebug);
 nextLevelButton.addEventListener('click', startNextLevel);
 playAgainButton.addEventListener('click', restartGame);
-debugStormButton.hidden = !SHOW_DEBUG_CONTROLS;
-debugStormButton.addEventListener('click', advanceStormForDebug);
 pauseButton.addEventListener('click', togglePause);
 musicButton.addEventListener('click', () => {
   toggleMusic();
   canvas.focus();
 });
 updateMusicButton();
+startMenuMusic();
+window.addEventListener('pointerdown', startMenuMusic);
+window.addEventListener('keydown', startMenuMusic);
 window.addEventListener('keydown', handleKeyDown);
 const touchStick = createTouchStick({
   surface: canvas,
@@ -3303,6 +3295,12 @@ function paintPanelSprite(panelCanvas, frame) {
   panelCanvas.getContext('2d').drawImage(frame, 0, 0);
 }
 paintPanelSprite(document.querySelector('#maya-token'), mayaFrames.walk[0]);
+paintPanelSprite(document.querySelector('#waffle-token'), createHudIcon('waffle'));
+paintPanelSprite(document.querySelector('#tab-token'), sodaTabSprite);
+// The pictures on the Music, Pause and Restart keys.
+for (const iconCanvas of document.querySelectorAll('.hud-button canvas[data-icon]')) {
+  paintPanelSprite(iconCanvas, createHudIcon(iconCanvas.dataset.icon));
+}
 
 const startScene = startChaseScene(document.querySelector('#start-scene'), startOverlay, heroFrames[selectedCharacterId]);
 // Sprites on the diner screens: the hero (standing) and Maya (sitting, tail wagging) on
