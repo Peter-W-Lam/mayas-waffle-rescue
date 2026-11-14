@@ -13,8 +13,10 @@ export const WEATHER_SETTINGS = {
     warningSeconds: 5,
     floodsTurnDeep: false, // false: floods stop at shallow (slow, never impassable)
     shallowSeconds: 12, // time before shallow water turns deep (when floodsTurnDeep)
-    shallowSpeedMultiplier: 0.4,
-    dinosaursBlockedFrom: 'shallow', // or 'deep'
+    shallowSpeedMultiplier: 0.4, // the hero's speed in shallow water, as a share of normal
+    // Dinosaurs wade through shallow water too, at the hero's wading speed, and are only
+    // stopped by deep water. 'shallow' here would keep them out of flooded streets entirely.
+    dinosaursBlockedFrom: 'deep',
     onStormFull: 'final-surge', // or 'lose'
   },
 };

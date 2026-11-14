@@ -32,6 +32,8 @@ import { createWeatherTicker } from './weatherTicker.js';
 import { createMusic } from './music.js';
 import { playSound, setSoundsMuted, unlockSounds } from './sounds.js';
 import { MARTA_LINE } from './martaLine.js';
+import { BELTLINE } from './beltLine.js';
+import { STREETLIGHT_LANTERN_ROWS, createStreetlightSprite } from './streetlightSprite.js';
 import { createMarta, drawMartaTracks, drawMartaTrains, updateMarta } from './marta.js';
 import { startChaseScene } from './startScene.js';
 import { playIntro } from './introScene.js';
@@ -580,6 +582,84 @@ const neighborhoodCanopy = createNeighborhoodCanopy({
 const GROUND_LAYER_PIXEL = 2;
 const groundLayer = createGroundLayer();
 
+// Streetlights line the BeltLine, one every STREETLIGHT_SPACING: beside its trails and
+// its Wylie Street sidewalk, and along DeKalb Avenue where it shares the street, so the
+// whole route reads as one line. They come on as the storm darkens the map (see
+// drawStreetlightGlow).
+const STREETLIGHT_SPACING = 180;
+const STREETLIGHT_SCALE = 2;
+// How far past the edge of the paving a light may stand; the first clear spot wins.
+const STREETLIGHT_EDGE_GAPS = [8, 16, 26];
+// The pool of light each one throws once it's on: how far it reaches, and how strong it
+// is at full storm (0 to 1).
+const STREETLIGHT_GLOW_RADIUS = 78;
+const STREETLIGHT_GLOW_STRENGTH = 0.42;
+const streetlightSprite = createStreetlightSprite();
+const litStreetlightSprite = createStreetlightSprite({ lit: true });
+const streetlightGlowSprite = createStreetlightGlowSprite();
+const streetlights = placeStreetlights();
+
+// A soft warm disc, brightest in the middle, drawn over each lit streetlight.
+function createStreetlightGlowSprite() {
+  const size = STREETLIGHT_GLOW_RADIUS * 2;
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = size;
+  glowCanvas.height = size;
+  const glowContext = glowCanvas.getContext('2d');
+  const glow = glowContext.createRadialGradient(
+    STREETLIGHT_GLOW_RADIUS, STREETLIGHT_GLOW_RADIUS, 4,
+    STREETLIGHT_GLOW_RADIUS, STREETLIGHT_GLOW_RADIUS, STREETLIGHT_GLOW_RADIUS,
+  );
+  glow.addColorStop(0, 'rgba(255, 220, 140, 1)');
+  glow.addColorStop(0.45, 'rgba(255, 214, 120, 0.4)');
+  glow.addColorStop(1, 'rgba(255, 214, 120, 0)');
+  glowContext.fillStyle = glow;
+  glowContext.fillRect(0, 0, size, size);
+  return glowCanvas;
+}
+
+function placeStreetlights() {
+  const blockedRects = [
+    ...landmarkProps.map(({ sprite, x, y, scale }) => {
+      const reach = Math.hypot(sprite.width, sprite.height) * scale / 2;
+      return { x: x - reach, y: y - reach, width: reach * 2, height: reach * 2 };
+    }),
+    ...waffleHouseSites,
+  ];
+  // Off every street's paving and clear of the tunnel walls, the MARTA line and the
+  // buildings that are drawn as sprites.
+  const isClear = (x, y) => mapData.roads.every((road) => distanceToPath(x, y, road.points) > road.width / 2 + 6)
+    && distanceToPath(x, y, KROG_TUNNEL_PATH) > 48
+    && distanceToPath(x, y, marta.centreline) > 34
+    && !blockedRects.some((rect) => x > rect.x - 14 && x < rect.x + rect.width + 14
+      && y > rect.y - 14 && y < rect.y + rect.height + 50);
+
+  const paths = [
+    ...mapData.roads
+      .filter((road) => road.type === 'trail' && getPathLength(road.points) > STREETLIGHT_SPACING * 2)
+      .map((road) => road.points),
+    scalePoints(BELTLINE.shared),
+  ];
+  const lights = [];
+  for (const points of paths) {
+    const length = getPathLength(points);
+    for (let distance = STREETLIGHT_SPACING / 2, count = 0; distance < length; distance += STREETLIGHT_SPACING, count += 1) {
+      const { x, y, angle } = getPointAlongPath(points, distance);
+      // The paving here is the trail itself or, on the shared stretch, the street.
+      const paving = findNearestRoadPoint(x, y);
+      const firstSide = count % 2 === 0 ? 1 : -1; // alternate sides down the path
+      const spots = STREETLIGHT_EDGE_GAPS.flatMap((gap) => [firstSide, -firstSide].map((side) => {
+        const reach = (paving.road.width / 2 + gap) * side;
+        return { x: paving.x - Math.sin(angle) * reach, y: paving.y + Math.cos(angle) * reach };
+      }));
+      const spot = spots.find((candidate) => isClear(candidate.x, candidate.y));
+      if (spot) lights.push(spot);
+    }
+  }
+  // Top to bottom, so a light lower on the screen overlaps one behind it.
+  return lights.sort((first, second) => first.y - second.y);
+}
+
 // Streets Maya (and the dinosaurs) can spawn on.
 const spawnRoads = mapData.roads.filter(
   (road) => MAYA_SPAWN_STREETS.some((prefix) => road.name.startsWith(prefix))
@@ -976,26 +1056,31 @@ function drawPolygons(targetContext, polygons, fillStyle, strokeStyle) {
 }
 
 function drawRoads(targetContext) {
+  const streets = mapData.roads.filter((road) => road.type !== 'trail');
+  const trails = mapData.roads.filter((road) => road.type === 'trail');
   targetContext.save();
   targetContext.lineCap = 'round';
   targetContext.lineJoin = 'round';
 
   // A separate border pass lets intersections merge into continuous surfaces.
-  for (const road of mapData.roads) {
+  for (const road of streets) {
     tracePath(targetContext, road.points);
     targetContext.strokeStyle = '#e7e2d7';
     targetContext.lineWidth = road.width + 18;
     targetContext.stroke();
   }
 
-  for (const road of mapData.roads) {
+  // The BeltLine goes down before the asphalt, so streets run across it at each crossing.
+  drawTrails(targetContext, trails);
+
+  for (const road of streets) {
     tracePath(targetContext, road.points);
     targetContext.strokeStyle = '#69767c';
     targetContext.lineWidth = road.width;
     targetContext.stroke();
   }
 
-  for (const road of mapData.roads) {
+  for (const road of streets) {
     if (!['primary', 'secondary', 'tertiary'].includes(road.type)) continue;
     tracePath(targetContext, road.points);
     targetContext.strokeStyle = '#f7e8a0';
@@ -1174,6 +1259,30 @@ function getPointAlongPath(points, targetDistance) {
   return { x: end[0], y: end[1], angle: Math.atan2(end[1] - start[1], end[0] - start[0]) };
 }
 
+// The BeltLine (roads of type 'trail'): a gray concrete sidewalk with a darker edge and a
+// joint across it every few steps, like poured slabs.
+function drawTrails(targetContext, trails) {
+  targetContext.save();
+  for (const [color, extraWidth] of [['#8b9294', 6], ['#bcc1bf', 0]]) {
+    for (const trail of trails) {
+      tracePath(targetContext, trail.points);
+      targetContext.strokeStyle = color;
+      targetContext.lineWidth = trail.width + extraWidth;
+      targetContext.stroke();
+    }
+  }
+  // A short dash as wide as the path is a line across it.
+  targetContext.lineCap = 'butt';
+  targetContext.setLineDash([2, 22]);
+  for (const trail of trails) {
+    tracePath(targetContext, trail.points);
+    targetContext.strokeStyle = '#a1a8a7';
+    targetContext.lineWidth = trail.width;
+    targetContext.stroke();
+  }
+  targetContext.restore();
+}
+
 function buildRoadLabels() {
   const labels = [];
   const positionsByName = new Map();
@@ -1334,6 +1443,47 @@ function drawStormLighting() {
     context.fillRect(0, 0, viewport.width, viewport.height);
   }
   context.restore();
+  drawStreetlightGlow(Math.min(1, glowStrength));
+}
+
+// The BeltLine's streetlights come on as the storm darkens the map, the same way Waffle
+// House glows: each lantern turns warm and throws a pool of light onto the path. This is
+// drawn over the storm's dark tint, in screen pixels. strength runs from 0 (off) to 1.
+function drawStreetlightGlow(strength) {
+  if (strength <= 0) return;
+  const width = streetlightSprite.width * STREETLIGHT_SCALE;
+  const height = streetlightSprite.height * STREETLIGHT_SCALE;
+  const lanternHeight = STREETLIGHT_LANTERN_ROWS * STREETLIGHT_SCALE;
+  const cameraX = Math.round(camera.x);
+  const cameraY = Math.round(camera.y);
+
+  context.save();
+  context.imageSmoothingEnabled = false;
+  for (const light of streetlights) {
+    const x = light.x - cameraX;
+    const y = light.y - cameraY;
+    const isOnScreen = x > -STREETLIGHT_GLOW_RADIUS && x < viewport.width + STREETLIGHT_GLOW_RADIUS
+      && y > -STREETLIGHT_GLOW_RADIUS && y < viewport.height + height + STREETLIGHT_GLOW_RADIUS;
+    if (!isOnScreen) continue;
+
+    // Just the lantern, so the post doesn't draw over anyone walking past it.
+    context.globalCompositeOperation = 'source-over';
+    context.globalAlpha = strength;
+    context.drawImage(
+      litStreetlightSprite,
+      0, 0, litStreetlightSprite.width, STREETLIGHT_LANTERN_ROWS,
+      Math.round(x - width / 2), Math.round(y - height), width, lanternHeight,
+    );
+    // The light, centred between the lantern and the ground so it reaches both.
+    context.globalCompositeOperation = 'lighter';
+    context.globalAlpha = strength * STREETLIGHT_GLOW_STRENGTH;
+    context.drawImage(
+      streetlightGlowSprite,
+      Math.round(x - STREETLIGHT_GLOW_RADIUS),
+      Math.round(y - height * 0.6 - STREETLIGHT_GLOW_RADIUS),
+    );
+  }
+  context.restore();
 }
 
 function drawLandmarkProps() {
@@ -1370,11 +1520,31 @@ function drawLandmarkProps() {
   context.restore();
 }
 
+// Each streetlight stands with the foot of its post on its spot (see placeStreetlights).
+function drawStreetlights() {
+  const width = streetlightSprite.width * STREETLIGHT_SCALE;
+  const height = streetlightSprite.height * STREETLIGHT_SCALE;
+  context.save();
+  context.imageSmoothingEnabled = false;
+  for (const { x, y } of streetlights) {
+    const isOnScreen = x > camera.x - width && x < camera.x + viewport.width + width
+      && y > camera.y - 8 && y < camera.y + viewport.height + height;
+    if (!isOnScreen) continue;
+    context.beginPath();
+    context.ellipse(x, y, 7, 3, 0, 0, Math.PI * 2);
+    context.fillStyle = 'rgba(24, 35, 30, 0.24)';
+    context.fill();
+    context.drawImage(streetlightSprite, Math.round(x - width / 2), Math.round(y - height), width, height);
+  }
+  context.restore();
+}
+
 function drawMap() {
   drawGroundLayer();
   drawKrogStreetTunnel();
   drawFloodWater();
   drawLandmarkProps();
+  drawStreetlights();
   drawMartaTracks(context, marta);
   drawRoadLabels();
   drawLandmarks();
@@ -2118,8 +2288,12 @@ const dinosaurWorld = {
   settings: null,
   dinosaurs: null,
   canOccupy: canDinosaurOccupy,
-  // Dinosaurs won't wade in (from the depth set by dinosaursBlockedFrom), but can walk out.
+  // Dinosaurs won't step into water from the depth set by dinosaursBlockedFrom (deep
+  // water, the same as the hero), but can walk out.
   isInBlockingWater: (x, y, radius) => getFloodDepthAt(x, y, radius) >= DINOSAUR_BLOCKING_DEPTH,
+  // In shallower flood water they wade, at the hero's own wading speed.
+  isWading: (x, y) => getFloodDepthAt(x, y) >= SHALLOW_WATER,
+  wadingSpeedRatio: WEATHER.shallowSpeedMultiplier,
 };
 
 function updateDinosaurs(deltaTime) {
@@ -2946,6 +3120,7 @@ function drawGame() {
   gameState.pickups.forEach(drawPickup);
   drawPickupPopups();
   drawFloodMarkers();
+  gameState.dinosaurs.forEach(drawWadingRipples);
   gameState.dinosaurs.forEach(drawDinosaur);
   drawWadingRipples(gameState.maya);
   drawMaya();

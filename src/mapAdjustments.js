@@ -1,7 +1,8 @@
 // Hand-tuned changes to the generated OpenStreetMap road geometry: nudges so landmark
-// sprites fit between the streets they sit beside, and a few added streets. Kept separate
-// from mapData.js because that file is regenerated from the OSM extracts.
-//
+// sprites fit between the streets they sit beside, a few added streets, and the BeltLine
+// trail. Kept separate from mapData.js because that file is regenerated from the OSM extracts.
+import { BELTLINE } from './beltLine.js';
+
 // Each entry moves one road point to a new position everywhere it appears, so every
 // road sharing that point as a junction moves with it and stays connected.
 const ROAD_POINT_MOVES = [
@@ -35,10 +36,24 @@ const EXTRA_ROADS = [
   },
 ];
 
+// The BeltLine's two off-street stretches, its exits and its sidewalk beside Wylie Street
+// (beltLine.js) join the street network as roads of type 'trail': walkable like any
+// street, a little narrower, and drawn as a gray sidewalk (drawRoads in main.js). The
+// stretch along DeKalb Avenue and through the Krog Street Tunnel needs no road of its own.
+const BELTLINE_WIDTH = 38;
+const BELTLINE_ROADS = [...BELTLINE.trails, ...BELTLINE.exits, ...BELTLINE.sidewalks].map((points) => ({
+  name: 'BeltLine',
+  type: 'trail',
+  width: BELTLINE_WIDTH,
+  points,
+}));
+
 const POINT_MATCH_TOLERANCE = 0.05;
 
 export function applyRoadAdjustments(roads) {
-  roads.push(...EXTRA_ROADS.map((road) => ({ ...road, points: road.points.map((point) => [...point]) })));
+  roads.push(...[...EXTRA_ROADS, ...BELTLINE_ROADS].map(
+    (road) => ({ ...road, points: road.points.map((point) => [...point]) }),
+  ));
 
   for (const { from, to } of ROAD_POINT_MOVES) {
     for (const road of roads) {

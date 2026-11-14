@@ -44,8 +44,11 @@ export const FLOOD_ZONES = [
   {
     id: 'wylie-tracks',
     name: 'Wylie Street by the tracks',
-    width: 44,
-    points: [[1950.6, 1537.3], [2300.5, 1546]],
+    // Wider than the street and centred a little north of it, so the water also covers
+    // the BeltLine sidewalk down its north side. Otherwise the sidewalk would be a dry
+    // way round the flood.
+    width: 68,
+    points: [[1950.6, 1528.7], [2300.5, 1537.4]],
   },
   {
     id: 'carroll',

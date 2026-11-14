@@ -71,9 +71,9 @@ const STEPS = [
   },
   {
     image: floodImage,
-    alt: 'The hero and Maya wading through a flooded street in the rain while a T-Rex stops at the water’s edge.',
+    alt: 'The hero and Maya wading through a flooded street in the rain with a T-Rex right behind them at the water’s edge.',
     title: 'Watch the water',
-    text: 'The storm floods streets as it rolls in. Wading slows you down, but dinosaurs won’t follow you into the water.',
+    text: 'The storm floods streets as it rolls in. Wading slows you down, and the dinosaurs wade just as fast as you do, so keep moving.',
   },
 ];
 

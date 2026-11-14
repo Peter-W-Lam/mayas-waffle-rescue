@@ -164,14 +164,23 @@ export function createDinosaur(species, id, point, { pack = id, packIndex = 0 } 
 
 // Moves one dinosaur for this frame. world: { hero: { x, y, headingX, headingY },
 // heroSpeed, settings (the level's), dinosaurs (all of them), canOccupy(x, y, radius),
-// isInBlockingWater(x, y, radius) }.
+// isInBlockingWater(x, y, radius), isWading(x, y), wadingSpeedRatio }.
 export function updateDinosaur(dinosaur, deltaTime, world) {
   dinosaur.species.update(dinosaur, deltaTime, world);
 }
 
+// How far a dinosaur moves this frame. speedRatio is its speed on dry road, as a share of
+// the hero's. In flood water every dinosaur wades at exactly the hero's wading speed
+// instead, whatever its speed on dry road (a charging Allosaurus included), so water
+// neither stops a chase nor decides it.
+function getStepDistance(dinosaur, speedRatio, deltaTime, world) {
+  const ratio = world.isWading(dinosaur.x, dinosaur.y) ? world.wadingSpeedRatio : speedRatio;
+  return world.heroSpeed * ratio * deltaTime;
+}
+
 function updateTRex(dinosaur, deltaTime, world) {
   const { hero } = world;
-  stepToward(dinosaur, hero.x, hero.y, world.heroSpeed * world.settings.speedRatio * deltaTime, world);
+  stepToward(dinosaur, hero.x, hero.y, getStepDistance(dinosaur, world.settings.speedRatio, deltaTime, world), world);
 }
 
 // A pack travels in a line behind its chaser until it nears the hero. Then the two
@@ -187,7 +196,7 @@ const RAPTOR_FOLLOW_GAP = 36; // how far behind the chaser a follower settles
 
 function updateVelociraptor(dinosaur, deltaTime, world) {
   const { hero } = world;
-  const stepDistance = world.heroSpeed * world.settings.speedRatio * deltaTime;
+  const stepDistance = getStepDistance(dinosaur, world.settings.speedRatio, deltaTime, world);
   const distance = Math.hypot(hero.x - dinosaur.x, hero.y - dinosaur.y);
   const chaser = dinosaur.flankSide === 0
     ? dinosaur
@@ -237,14 +246,14 @@ function updateAllosaurus(dinosaur, deltaTime, world) {
     dinosaur.facing = hero.x < dinosaur.x ? -1 : 1;
     if (dinosaur.stateTime >= settings.windupSeconds) setState(dinosaur, 'charge');
   } else if (dinosaur.state === 'charge') {
-    stepToward(dinosaur, hero.x, hero.y, world.heroSpeed * settings.chargeSpeedRatio * deltaTime, world);
+    stepToward(dinosaur, hero.x, hero.y, getStepDistance(dinosaur, settings.chargeSpeedRatio, deltaTime, world), world);
     if (dinosaur.stateTime >= settings.chargeSeconds) setState(dinosaur, 'tired');
   } else if (dinosaur.state === 'tired') {
     if (dinosaur.stateTime >= settings.tiredSeconds) setState(dinosaur, 'prowl');
   } else if (Math.hypot(hero.x - dinosaur.x, hero.y - dinosaur.y) <= settings.chargeRange) {
     setState(dinosaur, 'windup');
   } else {
-    stepToward(dinosaur, hero.x, hero.y, world.heroSpeed * settings.prowlSpeedRatio * deltaTime, world);
+    stepToward(dinosaur, hero.x, hero.y, getStepDistance(dinosaur, settings.prowlSpeedRatio, deltaTime, world), world);
   }
 }
 
@@ -266,8 +275,8 @@ const candidateScore = new Float64Array(HEADING_COUNT);
 // Takes one step of `distance` toward a target point. There's no route-finding: of 24
 // headings fanned out from the direct line, the open one that ends nearest the target
 // wins. A small cost for turning keeps a dinosaur sliding the same way along a wall
-// instead of jittering, and pack hunters are nudged apart. It won't wade into water
-// that blocks it, but can always walk out.
+// instead of jittering, and pack hunters are nudged apart. It won't step into water deep
+// enough to block it (world.isInBlockingWater), but can always walk out.
 function stepToward(dinosaur, targetX, targetY, distance, world) {
   const { roadRadius, spacing } = dinosaur.species;
   const desiredAngle = Math.atan2(targetY - dinosaur.y, targetX - dinosaur.x);
