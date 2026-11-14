@@ -40,6 +40,9 @@ const INTRO_SOUNDS = {
 // When the intro ends or is skipped, whatever is still playing fades out over this long.
 const SOUND_FADE_OUT_SECONDS = 0.6;
 const RAIN_FADE_OUT_SECONDS = 1.5;
+// The roar recording runs several seconds longer than the roar on screen (ROAR_DURATION).
+// When the picture's roar ends, the sound fades out over this long instead of carrying on.
+const ROAR_SOUND_FADE_OUT_SECONDS = 0.35;
 
 // Roar timings, in seconds after the roar starts.
 const ROAR_DURATION = 2.4;
@@ -403,10 +406,16 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
   // Sounds this intro has started, so they can be faded out when it ends or is skipped.
   const playingSounds = [];
 
+  // Returns the sound's handle ({ stop(fadeSeconds) }), for a sound that has to end early.
   function startSound(name) {
     const settings = INTRO_SOUNDS[name];
-    playingSounds.push({ sound: playSound(name, settings), loops: Boolean(settings.loop) });
+    const sound = playSound(name, settings);
+    playingSounds.push({ sound, loops: Boolean(settings.loop) });
+    return sound;
   }
+
+  // The roar while it's still sounding; null before it starts and once it has been faded out.
+  let roarSound = null;
 
   function fadeOutSounds() {
     for (const { sound, loops } of playingSounds) sound.stop(loops ? RAIN_FADE_OUT_SECONDS : SOUND_FADE_OUT_SECONDS);
@@ -482,7 +491,7 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
 
     roar() {
       scene.roarTime = 0;
-      startSound('roar');
+      roarSound = startSound('roar');
     },
 
     caption({ text }) {
@@ -557,6 +566,11 @@ export function playIntro({ host, heroFrames, heroSeatedFrame, heroName, onDone 
     const rainStep = RAIN_EASE_PER_SECOND * deltaTime;
     scene.rain += clamp(scene.rainTarget - scene.rain, -rainStep, rainStep);
     if (scene.roarTime >= 0) scene.roarTime += deltaTime;
+    // The sound ends with the roar on screen, on a quick fade rather than a hard cut.
+    if (roarSound && scene.roarTime >= ROAR_DURATION) {
+      roarSound.stop(ROAR_SOUND_FADE_OUT_SECONDS);
+      roarSound = null;
+    }
     if (scene.powerOutTime >= 0) scene.powerOutTime += deltaTime;
     const hero = scene.hero;
     hero.hopTime = Math.max(0, hero.hopTime - deltaTime);
